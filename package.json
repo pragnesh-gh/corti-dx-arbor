@@ -1,0 +1,27 @@
+{
+  "name": "corti-dx-arbor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Arbor — a clinical differential-diagnosis agent on the Corti Agent API: a retraceable decision-tree of narrowing hypotheses from presentation to working diagnosis to treatment plan.",
+  "type": "module",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm --workspace server run dev",
+    "dev:web": "npm --workspace web run dev",
+    "build": "npm --workspace web run build && npm --workspace server run build",
+    "start": "npm --workspace server start",
+    "smoke": "tsx scripts/smoke.ts",
+    "scenarios": "tsx scripts/run-scenarios.ts",
+    "probe-registry": "tsx scripts/probe-registry.ts",
+    "typecheck": "npm --workspace server run typecheck && npm --workspace web run typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
