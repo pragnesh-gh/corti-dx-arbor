@@ -117,6 +117,34 @@ function extractJson(text: string): unknown | null {
   return null;
 }
 
+/**
+ * Retry a transient-prone Corti call. The platform sometimes resets the
+ * HTTP/2 stream on long expert-chained calls (ERR_HTTP2_STREAM_ERROR /
+ * NGHTTP2_INTERNAL_ERROR) or times out; a single retry usually succeeds.
+ */
+export async function withRetry<T>(fn: () => Promise<T>, retries = 3, backoffMs = 3000): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      const msg = (e as Error)?.message || String(e);
+      // On the dev-WEU platform the per-agent A2A path intermittently
+      // returns a gateway-level "404 page not found" (plain text) right
+      // after an agent is created — a routing/propagation hiccup that
+      // resolves on retry. Treat it as transient here.
+      const transient =
+        /timeout|aborted|fetch failed|NGHTTP2|ERR_HTTP2|stream|reset|ECONNRESET|ETIMEDOUT/i.test(msg) ||
+        /404 page not found/i.test(msg);
+      if (attempt === retries || !transient) throw e;
+      console.warn(`[arbor] transient call failure (attempt ${attempt + 1}/${retries + 1}), retrying: ${msg.slice(0, 120)}`);
+      await new Promise((r) => setTimeout(r, backoffMs * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 function summarizePresentation(c: Case): string {
   const p = c.presentation;
   const d = p.demographics;
@@ -178,9 +206,11 @@ ${renderFindings(c)}
 TASK
 Update the differential. Emit the FULL set of live hypotheses with updated probabilities (hypotheses that are now ruled out should be omitted from "hypotheses" but named in rulesOut). Branch (set parent) when a finding splits a hypothesis. Return ONLY the JSON object matching the schema: { hypotheses:[{name, description?, codes?, probability(0-100), isZebra?, baseRateNote?, parent?, rulesOut?:[name], discriminatingTests?:[{name, rationale, discriminatesBetween?:[name]}]}], findings?:[{summary, detail?, direction?, hypothesisNames?, citation?, source?}], message:string, decision:{kind:"converged"|"test"|"gather", ...} }`;
 
-  const resp = await client.sendMessage(agentId, {
-    message: { role: "ROLE_USER", parts: [{ kind: "text", text: prompt }] },
-  });
+  const resp = await withRetry(() =>
+    client.sendMessage(agentId, {
+      message: { role: "ROLE_USER", parts: [{ kind: "text", text: prompt }] },
+    }),
+  );
 
   const rawText = textOf(resp.message) || textOf(resp.task?.status?.message);
   const parsed = extractJson(rawText) as EngineRawResponse | null;
@@ -354,11 +384,16 @@ function mergeEngineResponse(
       } else {
         c.rootHypothesisIds.push(h.id);
       }
-      // Attach finding evidence.
+      // Attach finding evidence: the finding referenced this hypothesis by
+      // name before the node existed, so link it now that the node does.
       for (const f of newFindings) {
-        for (const hn of f.hypothesisIds) {
-          // The finding was resolved by name before this node existed; if the
-          // finding's hypothesis name matches, attach.
+        const namedInFinding = (raw.findings || []).some(
+          (rf) => rf.hypothesisNames?.includes(h.name),
+        );
+        if (namedInFinding && !f.hypothesisIds.includes(h.id)) f.hypothesisIds.push(h.id);
+        if (f.hypothesisIds.includes(h.id)) {
+          if (f.direction === "supports") h.evidenceFor.push({ findingId: f.id, weight: f.summary });
+          else if (f.direction === "against") h.evidenceAgainst.push({ findingId: f.id, weight: f.summary });
         }
       }
       upserted.push(h);
@@ -376,24 +411,10 @@ function mergeEngineResponse(
   //    even when the LLM's numbers are rough.
   normalizeTree(c, now);
 
-  // 5) Reconcile new findings' hypothesisIds against freshly created hypotheses
-  //    (names matched after creation), and attach evidence.
-  for (const f of newFindings) {
-    for (const rh of raw.hypotheses) {
-      if (raw.findings?.some((rf) => rf.hypothesisNames?.includes(rh.name))) {
-        const h = findByName(c, rh.name);
-        if (h && !f.hypothesisIds.includes(h.id) && f.hypothesisIds.length === 0) {
-          // best-effort re-attach for findings that referenced this hypothesis
-          f.hypothesisIds.push(h.id);
-        }
-      }
-    }
-  }
-
-  // 6) Resolve the decision.
+  // 5) Resolve the decision.
   const decision = resolveDecision(c, raw, round);
 
-  // 7) Narrate.
+  // 6) Narrate.
   appendEvent(c, {
     round,
     kind: "engine_message",
@@ -422,6 +443,7 @@ function normalizeTree(c: Case, _now: string): void {
   }
   for (const key of Object.keys(groups)) {
     const group = groups[key];
+    if (!group) continue;
     const total = group.reduce((s, h) => s + h.probability, 0);
     if (total > 0) {
       for (const h of group) h.probability = h.probability / total;

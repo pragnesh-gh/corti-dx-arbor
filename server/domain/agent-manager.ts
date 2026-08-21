@@ -8,6 +8,7 @@
 
 import type { CortiClient } from "../corti/client.js";
 import type { AgentCreateRequest, AgentResponse } from "../corti/types.js";
+import { withRetry } from "./engine.js";
 import {
   AGENT_NAMES,
   evidenceOrchestratorDef,
@@ -36,7 +37,15 @@ async function findByName(
 ): Promise<AgentResponse | undefined> {
   let token: string | undefined;
   while (true) {
-    const page = await client.listAgents({ pageSize: 200, pageToken: token });
+    let page;
+    try {
+      page = await client.listAgents({ pageSize: 200, pageToken: token });
+    } catch (e) {
+      // Listing is best-effort de-dupe. If it flakes (transient 404/5xx),
+      // fall through to creating a fresh agent rather than failing boot.
+      console.warn(`[arbor] agent list failed (${(e as Error).message.slice(0, 80)}); will create fresh`);
+      return undefined;
+    }
     const found = page.agents.find((a) => a.name === name);
     if (found) return found;
     token = page.nextPageToken;
@@ -54,7 +63,7 @@ export async function provisionTeam(client: CortiClient): Promise<AgentTeam> {
       team[key] = existing;
       console.log(`[arbor] reuse agent ${key}: ${existing.id} (${existing.name})`);
     } else {
-      const created = await client.createAgent(def);
+      const created = await withRetry(() => client.createAgent(def));
       team[key] = created;
       console.log(`[arbor] created agent ${key}: ${created.id} (${created.name})`);
     }

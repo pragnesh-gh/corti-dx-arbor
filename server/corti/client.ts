@@ -21,7 +21,7 @@ import type {
   A2AStreamResponse,
 } from "./types.js";
 
-const DEFAULT_TIMEOUT_MS = 125_000; // platform can take >60s on expert calls
+const DEFAULT_TIMEOUT_MS = 240_000; // platform can take minutes on expert-chained calls
 
 export interface CortiConfig {
   apiBaseUrl: string; // https://api.dev-weu.corti.app

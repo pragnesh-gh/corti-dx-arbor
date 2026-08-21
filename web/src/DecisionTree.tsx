@@ -77,7 +77,9 @@ function layout(c: Case): { nodes: LayoutNode[]; width: number; height: number }
       assign(ch, depth + 1);
     }
     // center the parent over its children
-    ln.y = (children[0].y + children[children.length - 1].y) / 2;
+    const first = children[0];
+    const last = children[children.length - 1];
+    if (first && last) ln.y = (first.y + last.y) / 2;
     nodes.push(ln);
   };
   assign(presentationNode, 0);

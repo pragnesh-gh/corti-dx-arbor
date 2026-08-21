@@ -77,11 +77,11 @@ export function hypothesisEngineDef(): AgentCreateRequest {
     visibility: "private",
     labels: { app: "arbor", role: "hypothesis-engine" },
     // The engine delegates evidence lookups to registry experts as needed.
+    // Kept lean so a round stays fast; the evidence orchestrator does the
+    // heavier literature fan-out separately.
     connectors: [
-      { type: "registry", name: "pubmed-expert" },
-      { type: "registry", name: "medical-calculator-expert" },
-      { type: "registry", name: "coding-expert" },
       { type: "registry", name: "web-search-expert" },
+      { type: "registry", name: "medical-calculator-expert" },
     ],
   };
 }

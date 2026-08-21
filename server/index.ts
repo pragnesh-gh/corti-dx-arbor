@@ -28,7 +28,7 @@ import { CortiClient } from "./corti/client.js";
 import { provisionTeam, teardownTeam, type AgentTeam } from "./domain/agent-manager.js";
 import { store } from "./domain/case-store.js";
 import { createCase } from "./domain/case-factory.js";
-import { recordFinding, runRound, setWorkingDiagnosis } from "./domain/engine.js";
+import { recordFinding, runRound, setWorkingDiagnosis, withRetry } from "./domain/engine.js";
 import { buildTreatmentPlan } from "./domain/treatment.js";
 import type { Case, Presentation } from "./domain/types.js";
 
@@ -49,20 +49,6 @@ function emit(caseId: string, event: { kind: string; payload: unknown }): void {
   const subs = subscribers.get(caseId);
   if (subs) for (const s of subs) s(event);
 }
-
-function attachCaseEmitter(c: Case): void {
-  // The store mutates the case object in place; the server polls events on
-  // each append by wrapping appendEvent via a periodic flush is overkill —
-  // instead we emit right after each mutating endpoint runs (see routes).
-}
-
-app.use(
-  "/api/cases/:id",
-  (req, _res, next) => {
-    // attach id for downstream emitters if needed
-    next();
-  },
-);
 
 // ---- Health & registry ----------------------------------------------------
 
@@ -254,11 +240,13 @@ app.post("/api/cases/:id/chat", async (req, res) => {
   }
   try {
     const prompt = `CASE: ${summarize(c)}\n\nCLINICIAN QUESTION: ${body.message}\n\nAnswer concisely as decision support, referencing the current differential where relevant. Do not state diagnoses as certain.`;
-    const resp = await client.sendMessage(team.hypothesisEngine.id, {
-      message: { role: "ROLE_USER", parts: [{ kind: "text", text: prompt }] },
-    });
+    const resp = await withRetry(() =>
+      client.sendMessage(team.hypothesisEngine.id, {
+        message: { role: "ROLE_USER", parts: [{ kind: "text", text: prompt }] },
+      }),
+    );
     const text =
-      (resp.message?.parts || []).map((p) => p.text || "").join("\n").trim() ||
+      (resp.message?.parts || []).map((p: { text?: string }) => p.text || "").join("\n").trim() ||
       textOf(resp.task?.status?.message);
     store.update(c.id, () => {});
     res.json({ reply: text });

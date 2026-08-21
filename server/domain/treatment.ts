@@ -9,6 +9,7 @@
 import type { CortiClient } from "../corti/client.js";
 import type { A2AMessage } from "../corti/types.js";
 import { appendEvent } from "./case-store.js";
+import { withRetry } from "./engine.js";
 import type { Case, TreatmentPlan } from "./types.js";
 
 interface RawPlan {
@@ -85,15 +86,22 @@ KEY FINDINGS: ${c.findings.map((f) => f.summary).join("; ")}
 TASK
 Propose a concise treatment/management plan. For any surgical or specialized procedure, include case-finding: where in the world this has been performed, reported outcomes, and notable technique variations. Return ONLY JSON: { summary, steps:[{title, detail?, citation?{label,url?}}], caseFinding:{summary, sites:[{label, url?, note?}]} }`;
 
-  const resp = await client.sendMessage(agentId, {
-    message: { role: "ROLE_USER", parts: [{ kind: "text", text: prompt }] },
-  });
+  const resp = await withRetry(() =>
+    client.sendMessage(agentId, {
+      message: { role: "ROLE_USER", parts: [{ kind: "text", text: prompt }] },
+    }),
+  );
   const rawText = textOf(resp.message) || textOf(resp.task?.status?.message);
   const parsed = (extractJson(rawText) as RawPlan) || {};
   const plan: TreatmentPlan = {
     summary: parsed.summary || rawText.slice(0, 500) || "No plan synthesized.",
     steps: parsed.steps || [],
-    caseFinding: parsed.caseFinding,
+    caseFinding: parsed.caseFinding
+      ? {
+          summary: parsed.caseFinding.summary || "",
+          sites: parsed.caseFinding.sites || [],
+        }
+      : undefined,
     createdAt: new Date().toISOString(),
   };
   c.treatmentPlan = plan;
