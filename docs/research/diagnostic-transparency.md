@@ -22,6 +22,8 @@
 
 **Missed opportunity** (Singh et al.): A "missed opportunity to make a timely or correct diagnosis based on available evidence" — used as a practical, chart-review-confirmable definition of diagnostic error, particularly in outpatient settings.
 
+**Problem representation (PR) / "one-liner"** (Clary 2026, PMID 42049678): a concise synthesis of clinical information that captures the core diagnostic problem in one statement; central to diagnostic reasoning, communication, and patient safety. The act of forming it activates illness scripts and supports hypothesis generation — exactly what Arbor's hypothesis-engine prompt instructs.
+
 **Diagnostic adverse event (DAE)** (Zwaan 2010): Patient harm resulting from a diagnostic error, as identified through structured patient record review.
 
 ---
@@ -189,6 +191,21 @@ A JAMA editorial/commentary that framed diagnostic errors as the next major pati
 
 ## 5. Medical-Legal and Patient-Safety Rationale for Diagnostic Documentation/Transparency
 
+### Saber Tehrani et al. 2013: 25-Year US Malpractice Claims Summary (NPDB)
+
+- **Title:** "25-Year summary of US malpractice claims for diagnostic errors 1986-2010: an analysis from the National Practitioner Data Bank"
+- **Authors:** Saber Tehrani AS, Lee H, Mathews SC, Shore A, Makary MA, Pronovost PJ, Newman-Toker DE
+- **Journal:** BMJ Quality & Safety
+- **Year:** 2013; 22(8):672-680
+- **DOI:** 10.1136/bmjqs-2012-001550
+- **PMID:** 23610443
+
+**Key findings:**
+- Analyzed **350,706 paid claims** (1986–2010); **diagnostic errors (n=100,249) were the leading type (28.6%)** and accounted for the **highest proportion of total payments (35.2%)**
+- Diagnostic errors more often resulted in death than other allegation groups (**40.9% vs 23.9%**, p<0.001) and were the **leading cause of claims-associated death and disability**
+- Inflation-adjusted 25-year sum of diagnosis-related payments: **US$38.8 billion** (mean per-claim US$386,849; median US$213,250)
+- Conclusion: "Among malpractice claims, diagnostic errors appear to be the most common, most costly and most dangerous of medical mistakes."
+
 ### Schaffer et al. 2017: Diagnostic Error as Most Common Malpractice Allegation
 
 - **Title:** "Rates and Characteristics of Paid Malpractice Claims Among US Physicians by Specialty, 1992-2014"
@@ -248,6 +265,42 @@ The literature consistently shows that:
 - Organ-based documentation may **predispose trainees to several varieties of cognitive diagnostic error and deficient synthesis**
 - These include **framing error, premature or absent closure, failure to integrate related findings**, and failure to recognize the level of diagnostic resolution attained
 - Research links **more sophisticated problem representation with diagnostic success**
+
+### Clary et al. 2026: Coaching Problem Representation (the "one-liner")
+
+- **Title:** "How to Coach Problem Representation to Strengthen Diagnostic Reasoning in Trainees"
+- **Authors:** Clary C, Cohen A, Thammasitboon S
+- **Journal:** The Clinical Teacher
+- **Year:** 2026; 23(3):e70426
+- **DOI:** 10.1111/tct.70426
+- **PMID:** 42049678
+
+**Key findings:**
+- **Problem representation (PR)** is "a concise synthesis of clinical information that captures the core diagnostic problem in a single statement, often referred to as a 'one-liner'." Central to diagnostic reasoning, but frequently underdeveloped in training.
+- The **Assessment of Reasoning Tool-Reconstructed (ART-R)** gives educators a coaching rubric to refine PR along three elements: (1) clarity of the synthesized clinical problem; (2) emphasis on diagnostically relevant positive and negative findings; (3) use of precise medical terminology.
+- "Through repeated practice, trainees develop increasingly abstracted representations that activate illness scripts and support diagnostic hypothesis generation."
+
+### Braun et al. 2017: Representation Scaffolds Improve Diagnostic Efficiency
+
+- **Title:** "Representation scaffolds improve diagnostic efficiency in medical students"
+- **Authors:** Braun LT, Zottmann JM, Adolf C, Lottspeich C, Then C, Wirth S, Fischer MR, Schmidmaier R
+- **Journal:** Medical Education
+- **Year:** 2017; 51(7):712-722
+- **DOI:** 10.1111/medu.13249
+- **PMID:** 28585351
+
+**Key findings:** Randomized controlled study — writing case-representation summaries **significantly improved diagnostic efficiency**; the intervention group screened information faster while maintaining accuracy.
+
+### Olson et al. 2019: 12 Interprofessional Diagnostic Competencies
+
+- **Title:** "Competencies for improving diagnosis: an interprofessional framework for education and training in health care"
+- **Authors:** Olson A, Rencic J, Cosby K, Rusz D, Papa F, Croskerry P, Zierler B, Harkless G, Giuliano MA, Schoenbaum S, Colford C, Cahill M, Graber ML
+- **Journal:** Diagnosis (Berlin)
+- **Year:** 2019; 6(4):225-236
+- **DOI:** 10.1515/dx-2018-0105
+- **PMID:** 31271549
+
+**Key findings:** Given the "unacceptably high incidence of diagnostic errors," identified **twelve competencies** for health-professions education, spanning individual, teamwork, and system aspects of diagnosis.
 
 ### Smith et al. 2025: Diagnostic Reasoning Competencies
 
