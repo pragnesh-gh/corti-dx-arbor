@@ -1,29 +1,159 @@
 # The Physician's Differential Diagnosis Process: A Reference for Clinical Decision-Support Agent Design
 
-> **Companion note.** This is the *extended* research pass — it goes deeper on
-> Sections 2 (base rates, Meehl, Kahneman-Tversky, Occam/Hickam, demographic
-> stratification with worked examples), 3 (testing strategy, cascade costs,
-> threshold models), 5 (retraceable reasoning), and 6 (treatment hand-off).
-> Its **Sections 1 and 4 are left as "pending"** (their sub-agents hit upstream
-> rate limits); for the complete formal-DDx cognitive process (Section 1) and
-> the decision-tree/DDSS visualization survey (Section 4), see the canonical
-> companion file [`ddx-process.md`](./ddx-process.md), which covers all six
-> areas. The two files are complementary; read together they are comprehensive.
-
 > **Purpose.** This document maps the actual cognitive and procedural structure physicians use to arrive at a diagnosis from a patient presentation, grounded in primary clinical, cognitive-psychology, epidemiologic, and regulatory sources. It is the domain reference for a clinical decision-support agent + UI that mimics the real physician process.
 
-> **Status.** Sections 2, 3, 5, and 6 are complete (sourced). Sections 1 and 4 are being researched in parallel and will be inserted below as they arrive.
+> **Companion note.** This is the *extended* research pass — all six sections
+> complete (~20.8k words). It goes deeper than the canonical
+> [`ddx-process.md`](./ddx-process.md) on base rates (Meehl, Kahneman-Tversky,
+> Occam/Hickam, demographic stratification with worked examples), testing
+> strategy (cascade costs, threshold models, EVPI), retraceable reasoning (EU
+> AI Act, FDA GMLP, CoT faithfulness), and treatment hand-off (NSQIP,
+> volume-outcome, registers). `ddx-process.md` is the shorter canonical summary;
+> this is the full reference. **PMID correction:** Pauker-Kassirer 1980 threshold
+> paper = PMID 7366635 (the project brief had 7384435; verified via Europe PMC).
+
+> **Status.** All six sections complete (sourced).
 
 ---
 
 ## Table of Contents
 
-1. The Formal Differential Diagnosis Process *(pending — researching)*
+1. The Formal Differential Diagnosis Process *(complete)*
 2. Prevalence/Incidence and Demographic Adjustment *(complete)*
 3. Diagnostic Testing Strategy *(complete)*
-4. The Diagnostic Decision-Tree / Branching Visualization *(pending — researching)*
+4. The Diagnostic Decision-Tree / Branching Visualization *(complete)*
 5. Retraceable Reasoning / Explainability *(complete)*
 6. Treatment Planning Hand-off *(complete)*
+
+---
+
+## 1. The Formal Differential Diagnosis Process
+
+The canonical steps physicians follow to go from a patient's presenting complaint → narrowed differential → working diagnosis → final diagnosis, and the cognitive frameworks that underlie them.
+
+### The diagnostic pipeline
+
+A differential diagnosis is, formally, *"a method of analysis that distinguishes a particular disease or condition from others"* that share similar features. The physician's process, corroborated across the medical-education and cognitive-psychology literature, proceeds in stages:
+
+1. **Cue acquisition** — gather the history (chief complaint, HPI via OLDCARTS), exam, and labs.
+2. **Hypothesis generation** — generate an initial set of plausible diagnoses from cues (the "illness scripts" / pattern-recognition step, §a below).
+3. **Differential construction** — *"list candidate conditions, prioritize by risk and probability"* (Wikipedia, "Differential diagnosis" — https://en.wikipedia.org/wiki/Differential_diagnosis).
+4. **Anchoring and adjusting** — set a pre-test probability (the prior, often = prevalence) and update it with test results via Bayesian likelihood ratios (§b; full treatment in Section 3).
+5. **Testing to discriminate** — order tests that best split the remaining differential and could change management (Section 3).
+6. **Working diagnosis → final diagnosis** — once probability crosses a treatment threshold, the working diagnosis anchors a plan (Section 6); certainty may increase with response to therapy or definitive pathology.
+
+Three reasoning strategies operate throughout (Wikipedia, "Differential diagnosis"):
+- **Pattern recognition** — *"experienced providers use clinical experience to identify signs quickly."*
+- **Algorithms** — *"systematic processes like the ABC protocol for emergencies."*
+- **Statistical methods** — *"epidemiology-based approaches using Bayes' theorem and likelihood ratios to adjust probabilities based on test results."*
+
+### (a) Hypothesis generation / illness scripts
+
+How experts generate initial possibilities from cues is the central question of the medical-cognition literature. Two complementary accounts dominate.
+
+**Hypothetico-deductive model (Elstein et al., 1978).** The foundational empirical study of how physicians actually reason was the **Elstein, Shulman, Sprafka** investigation at Michigan State, published as *Medical Problem Solving: An Analysis of Clinical Reasoning* (Harvard University Press, 1978). Its central finding: expert clinicians reason **hypothetico-deductively** — they generate a small set of early hypotheses (often within seconds of hearing the chief complaint), then seek data to confirm or refute them. Diagnosis is treated as hypothesis testing: *"diseases are hypotheses"* against which findings are evaluated (Wikipedia, "Differential diagnosis"). This reframed diagnosis from a purely "analytic" act to a generate-and-test cognitive process. The model is the historical origin of the modern "differential" as an explicit, working list rather than a post-hoc justification.
+
+**Illness scripts (Feltovich & Barrows; developed by Bordage, Charlin, Schmidt, Norman).** An **illness script** is the expert's organized mental representation of a disease — a structured packet of knowledge containing the disease's *enabling conditions* (epidemiology, context), *faults* (pathophysiology), and *consequences* (clinical findings). The script theory holds that expert diagnosis is largely **non-analytic pattern matching**: the clinician recognizes the presentation as fitting a stored script and retrieves the diagnosis rapidly (System 1). Scripts are contrasted with two alternative representational theories:
+
+- **Semantic networks / semantic qualifiers (Bordage)** — knowledge organized as networks of concepts linked by semantic relations. Bordage's work (e.g., Bordage G. "Elaborated knowledge: a key to successful diagnostic thinking," *Academic Medicine*, 1994) showed that the *structure* of a clinician's knowledge (how richly and correctly concepts are linked) predicts diagnostic accuracy. Bordage distinguished "extended" vs "reduced" semantic networks — experts have denser, better-organized networks.
+  - Bordage G. "The curriculum: overloaded and lacking brevity?" / semantic-network work is widely cited in the medical-education literature; a canonical reference is Bordage G, Lemieux J. "Semantic structures and diagnostic thinking of experts and novices," *Academic Medicine*, 1991 (cited throughout the clinical-reasoning literature).
+
+- **Exemplar-based reasoning (Norman, Brooks)** — the alternative "instance" theory: experts diagnose by matching the current case to *specific remembered prior cases* (exemplars) rather than to abstract scripts. Norman and Brooks argued, across a series of studies (e.g., Norman GR, Brooks LR, Cavers I, et al.), that experts retain and retrieve specific instances and that abstract scripts are a post-hoc rationalization. The script-vs-exemplar debate is unresolved; the consensus in medical education (Norman's later reviews) is that **both mechanisms operate**, with exemplar matching dominating in visually rich domains (dermatology, radiology, ECG) and script retrieval dominating in internally represented diseases.
+
+**Script development: novice → expert (knowledge encapsulation).** Schmidt and Boshuizen's "knowledge encapsulation" theory describes how expertise develops: novices reason via *detailed pathophysiological chains* (basic-science causal reasoning); with experience, these chains are **encapsulated** into higher-level simplified propositions and ultimately into compact **illness scripts** that can be activated as wholes. This explains why experts are both faster *and* less able to articulate the underlying mechanism than intermediates — the detail has been compiled away into a retrievable chunk.
+- Charlin B, Boshuizen HPA, Custers EJ, et al. "Scripts and clinical reasoning," *Medical Education*, 2007 — formalized the script as the expert unit of clinical cognition.
+- Schmidt HG, Boshuizen HPA. "On the origin of intermediate effects in diagnostic cue-frequency assessment," and the encapsulation work in the Maastricht clinical-reasoning tradition.
+
+**Synthesis for an agent.** A diagnostic agent mimicking the expert process should (i) maintain structured "illness script" objects per disease (enabling conditions + faults + consequences), (ii) retrieve candidate scripts from presenting cues via pattern matching (System 1), and (iii) explicitly test them against accumulating evidence (System 2 / hypothetico-deductive), exposing the script's enabling conditions as the *demographic/geographic prior* (Section 2) and the consequences as the *findings that update probability* (Section 3).
+
+### (b) Anchoring and adjusting with Bayesian probability updating
+
+Diagnosis is, formally, sequential Bayesian inference: the clinician holds a **pre-test probability** (the prior, anchored on prevalence + demographic re-stratification — Section 2), then updates to a **post-test probability** using each finding's **likelihood ratio**. The full quantitative machinery (LR+/LR−, DOR, Fagan nomogram, threshold model) is developed in **Section 3** of this document; here we state the cognitive framing.
+
+- **Pre-test probability (prior):** the probability of disease before the current evidence, set by prevalence, demographics, and the referral filter (a specialty clinic's prior differs from an ED's). The "horses, not zebras" aphorism (Section 2) is the prior-setting heuristic.
+- **Likelihood ratio (LR):** *"how many times more (or less) likely patients with the disease are to have that particular result than patients without the disease"* (Deeks & Altman 2004, PMID 15258077 — full citation in Section 3).
+- **Bayes' theorem (odds form):** **post-test odds = pre-test odds × LR.** This is the engine that turns the prior and each finding into an updated posterior.
+- **Anchoring and adjustment (Tversky & Kahneman):** the named cognitive heuristic where judgment starts from an initial "anchor" value and is adjusted outward. In diagnosis, the anchor is the pre-test probability; correct adjustment is Bayesian LR updating. The danger is **insufficient adjustment** — clinicians anchor on the initial impression and under-correct for strong new evidence (see cognitive biases below). This is the bridge between the formal Bayesian machinery and the heuristic-and-biases literature.
+  - Tversky A, Kahneman D. "Judgment under uncertainty: Heuristics and biases." *Science*. 1974;185(4157):1124-1131. PMID 17835357. https://pubmed.ncbi.nlm.nih.gov/17835357/ — the seminal paper defining anchoring, availability, and representativeness heuristics.
+
+**Evidence-based medicine canon.** The operationalization of Bayesian updating for clinicians is the **Users' Guides to the Medical Literature** (Guyatt, Rennie, Meade, Cook, eds.):
+- Jaeschke R, Guyatt GH, Sackett DL. "Users' Guides... III. B. What are the results and will they help me in caring for my patients?" *JAMA*. 1994;271(9):703-707. PMID 8309035 (full citation in Section 3).
+- Sackett DL, Haynes RB, Guyatt GH, Tugwell P. *Clinical Epidemiology: A Basic Science for Clinical Medicine.* Little, Brown — the EBM textbook that taught pre-/post-test probability and LR to a generation of clinicians.
+
+### (c) Heuristics and cognitive biases that distort diagnosis
+
+Cognitive biases are *"systematic deviation from rationality in judgment"* (Wikipedia, "Cognitive bias"). In medicine, they are the principal source of **cognitive diagnostic error**. The canonical author is **Pat Croskerry**, an emergency physician and cognitive psychologist whose body of work catalogues the biases and frames them in dual-process theory.
+
+**Croskerry's foundational works:**
+- Croskerry P. "The importance of cognitive errors in diagnosis and strategies to minimize them." *Academic Medicine*. 2003;78(8):775-780. PMID 12915463. https://pubmed.ncbi.nlm.nih.gov/12915463/ — the seminal taxonomy of cognitive errors in diagnosis.
+- Croskerry P. "A universal model of diagnostic reasoning." *Academic Medicine*. 2009;84(8):1022-1028. — the dual-process model of clinical reasoning (see §d).
+- Croskerry P. *The Cognitive Autopsy: A Root Cause Analysis of Medical Decision Making.* CRC Press, 2020 (book cited via Wikipedia "Pat Croskerry" — https://en.wikipedia.org/wiki/Pat_Croskerry).
+- Croskerry P, Singhal G, Mamede S. "Cognitive debiasing 1: origins of bias and utility of debiasing." *BMJ Quality & Safety*. 2013;22(suppl 2):ii58-ii64.
+
+**The diagnostic-error literature (institutional):**
+- Graber ML, Franklin N, Gordon R. "Diagnostic error in internal medicine." *Arch Intern Med*. 2005;165(13):1493-1499. PMID 16009821 (cited in Section 5). Graber's **three-category taxonomy**: no-fault errors, system-related errors, and **cognitive errors** — and cognitive errors are only detectable *if the reasoning is made explicit*.
+- **Institute of Medicine / National Academies 2015 report**, *Improving Diagnosis in Health Care* (doi:10.17226/21794) — declares diagnostic error a "moral, professional, and public health imperative" (full citation in Section 5).
+
+**Definitions of the key biases (medical-diagnosis context):**
+- **Anchoring bias** — *"the tendency to make judgments heavily based on original information supplied, which acts as an anchor even if unrelated. Adjustment is the process of making gradual changes to those initial judgments"* (Wikipedia, "Heuristic"). In diagnosis: **premature fixation on the initial impression**, with insufficient adjustment for subsequent contradictory data. The clinician latches onto an early salient feature and under-weights later evidence. (Tversky & Kahneman 1974, PMID 17835357.)
+- **Premature closure** — accepting a diagnosis before it has been fully verified; "the tendency to stop considering alternatives once a diagnosis is reached." One of the most common cognitive errors in Graber/Croskerry's taxonomies. It is the failure mode of a strong System 1 match that is never subjected to System 2 verification.
+- **Availability bias** — *"judging the likelihood of an event based on how easily it comes to mind"* (Wikipedia, "Heuristic"). A diagnosis the clinician has recently seen, or vividly remembers, is over-weighted regardless of its true prevalence (violates the base-rate prior, Section 2).
+- **Confirmation bias** — the tendency to seek, interpret, and remember evidence that confirms the working hypothesis while ignoring or discounting disconfirming evidence. In diagnosis, it manifests as selectively ordering tests expected to confirm the leading hypothesis and reading equivocal results as supportive.
+- **Search-satisficing** — stopping the search once the first abnormality is found, missing additional findings (e.g., the second fracture on the X-ray).
+- **Diagnostic momentum** — once a diagnostic label is assigned (especially by an authoritative source), it tends to be accepted and propagated without re-examination; "the tendency of a diagnosis to gain acceptance and resist revision as it passes down the diagnostic chain." Patients accumulate diagnoses that no one revisits.
+- **Framing effects** — the diagnosis considered is influenced by how the problem is *framed* (e.g., "this is a failure-to-thrive case" vs. "this is a child with weight loss") rather than by the underlying data.
+- **Commission bias** — the tendency toward action over inaction (ordering tests/interventions) even when inaction (observation) is optimal, driven by discomfort with uncertainty.
+- **Base-rate neglect / representativeness** — judging probability by how well a presentation *resembles* a prototype while ignoring the base rate (prevalence). This is the central threat to correct prior-setting (Section 2, citing Kahneman & Tversky and the false-positive paradox).
+
+**The "when you hear hoofbeats, think horses, not zebras" aphorism** (Section 2) is the *corrective* heuristic against availability/representativeness bias — it forces the prior back toward the common disease.
+
+### (d) Diagnostic reasoning taxonomies — analytic vs. non-analytic (dual-process theory)
+
+Clinical reasoning is canonically described by **dual-process theory** (DPT), applied to medicine principally by **Croskerry**. The brain uses two reasoning modes (Wikipedia, "Dual process theory"): **System 1** is *"fast and automatic,"* **System 2** is *"slower... subject to conscious judgments"* (citing Kahneman 2003 and Stanovich/West).
+
+**Croskerry's universal model of diagnostic reasoning (2009, PMID context above)** distinguishes:
+- **System 1 (non-analytic / intuitive / pattern recognition):** rapid, automatic, heuristic, low-effort. Driven by illness-script and exemplar matching. Highly efficient in familiar cases; vulnerable to the biases in §c.
+- **System 2 (analytic / reflective / deductive / Bayesian):** slow, deliberate, rule-based, high-effort. Hypothetico-deductive testing, Bayesian updating, decision analysis. Accurate but cognitively expensive; cannot be sustained for every decision.
+
+**Key property:** the two systems run in parallel, and System 1 can override or preempt System 2 unless a "cognitive forcing function" triggers deliberate reflection. The diagnostic-error literature (Croskerry, Eva) argues most errors arise from an *unmonitored System 1* — pattern recognition that is never checked. The recommended corrective is **metacognition** and **cognitive debiasing** — deliberately switching to System 2 when stakes are high, the case is atypical, or System 1's answer "feels" too easy (Eva KW, "What every teacher needs to know about clinical reasoning," *Medical Education*, 2005; Mamede S, Schmidt HG, "The think-aloud method," and deliberate-reflection interventions).
+
+**Kahneman & Tversky origins.** The dual-process framing in medicine is a direct import from the heuristics-and-biases program of **Daniel Kahneman and Amos Tversky** (Tversky & Kahneman 1974, Science; Kahneman 2011, *Thinking, Fast and Slow*). The "fast/slow" mapping to clinical System 1/System 2 is the medical translation of Kahneman's popular framing.
+
+**Implication for an agent.** A clinical decision-support agent should explicitly model *both* modes: a fast pattern-matching retriever (System 1: illness-script activation from cues) *and* a deliberate Bayesian/decision-analytic updater (System 2: prior + LR + threshold logic from Sections 2–3). It should also implement the **cognitive-forcing function** the literature recommends — surfacing System 2 verification whenever stakes are high, the case is atypical, or the System 1 answer is unusually confident — to counter the premature-closure/anchoring failure modes that dominate diagnostic error.
+
+### Domain glossary (Section 1)
+
+- **Differential diagnosis (DDx)** — A method of analysis distinguishing a particular disease from others sharing features. *Source: Wikipedia, "Differential diagnosis."*
+- **Hypothetico-deductive reasoning** — Generating early hypotheses then seeking data to confirm/refute them; diagnosis as hypothesis testing. *Source: Elstein, Shulman, Sprafka, Medical Problem Solving, 1978.*
+- **Illness script** — Expert's structured mental packet for a disease (enabling conditions + faults + consequences); the unit of non-analytic pattern-recognition diagnosis. *Source: Feltovich/Barrows; developed by Bordage, Charlin, Schmidt; Charlin et al., Medical Education, 2007.*
+- **Semantic network (Bordage)** — Knowledge organized as concepts linked by semantic relations; the *structure* (density/correctness) predicts diagnostic accuracy. *Source: Bordage & Lemieux, Academic Medicine, 1991.*
+- **Exemplar-based reasoning (Norman/Brooks)** — Diagnosing by matching the current case to specific remembered prior cases. *Source: Norman & Brooks, instance theory.*
+- **Knowledge encapsulation** — The novice→expert transition: detailed pathophysiological chains compiled into compact scripts. *Source: Schmidt & Boshuizen.*
+- **Pre-test probability (prior)** — Probability of disease before current evidence; set by prevalence + demographics. *Source: EBM canon; Sackett, Haynes, Guyatt, Tugwell.*
+- **Likelihood ratio (LR)** — How many times more/less likely a finding is in disease vs. non-disease; updates the prior. *Source: Deeks & Altman 2004, PMID 15258077.*
+- **Anchoring and adjustment** — Heuristic: judge from an initial anchor, adjust outward; bias = insufficient adjustment. *Source: Tversky & Kahneman 1974, PMID 17835357.*
+- **Anchoring bias** — Premature fixation on the initial impression with insufficient adjustment. *Source: Croskerry 2003, PMID 12915463.*
+- **Premature closure** — Accepting a diagnosis before full verification; stopping consideration of alternatives. *Source: Croskerry; Graber 2005, PMID 16009821.*
+- **Availability bias** — Over-weighting recently/vividly recalled diagnoses. *Source: Tversky & Kahneman 1974.*
+- **Confirmation bias** — Seeking/interpreting evidence to confirm the working hypothesis. *Source: cognitive-bias literature.*
+- **Search-satisficing** — Stopping the search at the first finding, missing others. *Source: Croskerry.*
+- **Diagnostic momentum** — A diagnostic label propagates and resists revision down the chain. *Source: Croskerry.*
+- **Base-rate neglect / representativeness** — Judging by resemblance to a prototype while ignoring prevalence. *Source: Kahneman & Tversky.*
+- **Dual-process theory (clinical)** — System 1 (fast, automatic, pattern-recognition) vs System 2 (slow, deliberate, analytic/Bayesian). *Source: Croskerry 2009; Kahneman.*
+- **Cognitive debiasing / metacognition** — Deliberate switching to System 2 / reflection to counter unmonitored System 1 error. *Source: Eva 2005; Croskerry 2013.*
+
+### Key citations (Section 1)
+- [Tversky & Kahneman 1974, Science (PMID 17835357)](https://pubmed.ncbi.nlm.nih.gov/17835357/) — anchoring, availability, representativeness heuristics
+- [Croskerry 2003, Academic Medicine (PMID 12915463)](https://pubmed.ncbi.nlm.nih.gov/12915463/) — cognitive errors in diagnosis
+- [Graber et al. 2005, Arch Intern Med (PMID 16009821)](https://pubmed.ncbi.nlm.nih.gov/16009821/) — diagnostic error taxonomy (no-fault/system/cognitive)
+- [National Academies 2015, Improving Diagnosis in Health Care](https://nap.nationalacademies.org/catalog/21794/improving-diagnosis-in-health-care)
+- Elstein, Shulman, Sprafka, *Medical Problem Solving* (1978) — hypothetico-deductive model
+- Bordage G, Lemieux J. "Semantic structures and diagnostic thinking of experts and novices." *Academic Medicine*, 1991
+- Charlin B, Boshuizen HPA, et al. "Scripts and clinical reasoning." *Medical Education*, 2007
+- Schmidt HG, Boshuizen HPA — knowledge encapsulation theory
+- Eva KW. "What every teacher needs to know about clinical reasoning." *Medical Education*, 2005
+- Deeks JJ, Altman DG. "Diagnostic tests 4: likelihood ratios." *BMJ*, 2004 (PMID 15258077) — LR engine
+- Sackett DL, Haynes RB, Guyatt GH, Tugwell P. *Clinical Epidemiology* — EBM canon
 
 ---
 
@@ -410,6 +540,115 @@ This is Bayes' theorem in odds form: **post-test odds = pre-test odds × LR**.
 
 ---
 
+## 4. The Diagnostic Decision-Tree / Branching Visualization
+
+Established clinical decision-support tools and frameworks that visualize reasoning as a tree/branching structure.
+
+### (a) Clinical decision trees / algorithms — the node format and expected utility
+
+A **decision tree** is the canonical formalism for representing clinical decisions under uncertainty. It uses three node types (Wikipedia, "Decision tree"): **decision node** (square) — a point where the clinician chooses among actions; **chance node** (circle) — a point where outcomes occur with probabilities; **terminal/outcome node** (triangle) — the final state, assigned a **utility**.
+
+**The decision-analysis method:**
+1. Draw the tree: decision nodes branch into candidate actions (e.g., test vs. treat vs. observe); chance nodes branch into outcomes (disease present/absent; test positive/negative); terminal nodes carry utilities (e.g., QALYs, or a 0–1 outcome scale).
+2. **Averaging out (fold-back):** starting at the terminal nodes, work leftward — at each chance node compute the **expected utility** = Σ p(outcome) × utility(outcome); at each decision node choose the branch with the highest expected utility.
+3. **Sensitivity analysis:** vary the input probabilities/utilities to test the robustness of the decision.
+
+This is the formal machinery for "expected value" reasoning and is the same engine that underlies the threshold model (Section 3): a decision tree *is* the structure that the Pauker-Kassirer thresholds and the EVPI/EVSI calculations are evaluated on.
+
+**Foundational sources:**
+- **Weinstein MC, Fineberg HV, Elstein AS, et al. *Clinical Decision Analysis*. Philadelphia: W.B. Saunders, 1980** — the foundational textbook formalizing expected-value decision trees, utilities, and value-of-information for clinical medicine. (Cited in Section 3 for EVPI.) This is the canonical reference for the decision-node/chance-node/utility tree in medicine.
+- **Sox HC, Higgins MC, Owens DK. *Medical Decision Making*. American College of Physicians** — the standard ACP textbook on medical decision analysis, used in EBM and clinical-reasoning curricula.
+- **Pauker SG, Kassirer JP. "The threshold approach to clinical decision making." *N Engl J Med*. 1980;302(20):1109-1117. PMID 7366635** (full citation in Section 3) — the threshold model is a compressed decision tree (test vs. treat vs. observe at the root, disease present/absent at the chance nodes).
+
+**Clinical algorithms / practice protocols.** Beyond the quantitative tree, clinical guidelines present reasoning as **flowchart-style algorithms** (decision diamonds, process boxes, outcome terminators). These are the dominant "tree/branching" representation clinicians encounter in practice (e.g., NICE Pathways — Section 6; ACC/AHA clinical decision pathways; ACP practice algorithms). The **Society for Medical Decision Making** notation and **AHRQ/ACP clinical-algorithm standards** codify the symbol set. These algorithmic trees encode *branching logic* but usually omit explicit probabilities and utilities (they are "qualitative decision trees" — branch on yes/no criteria rather than on expected-value comparison).
+
+### (b) Existing diagnostic decision-support systems (DDSS)
+
+These are the established, pre-LLM diagnostic decision-support systems. Each generates a differential from clinical features and presents results (overwhelmingly as a **ranked list**, not a tree).
+
+**DXplain (Harvard/MGH).**
+- **What it is:** A web-based clinical decision support system (CDSS) that *"assists clinicians by generating stratified diagnoses based on patient signs, symptoms, and lab results. It provides evidential support for each differential diagnosis and recommends follow-up actions"* and doubles as a searchable disease/manifestation database. Designed by the **Laboratory of Computer Science at Massachusetts General Hospital** (work began 1984, first release 1986; Barnett GO et al. are the principal developers).
+  - Source: Wikipedia, "DXplain" — https://en.wikipedia.org/wiki/DXplain
+- **Algorithm:** Uses a **"pseudo-probabilistic algorithm"** to generate a ranked differential: (1) assess the importance of each entered finding; (2) determine how strongly each finding supports specific diseases; (3) differentiate common vs. rare diseases using stored prevalence and significance data; (4) rank so the most likely conditions yield the lowest rank.
+- **Presentation:** A **ranked list** of differential diagnoses, with evidential support and recommended follow-up steps per diagnosis.
+- **Accuracy:** In a preliminary trial of 46 cases, DXplain's rankings aligned with a panel of five board-certified physicians. In an evaluation of 103 consecutive internal medicine cases, DXplain correctly identified the diagnosis in **73% of instances**, with the correct diagnosis averaging a rank of 10.7. A small study indicated DXplain "tended to outperform generative AI."
+- **Limitations:** *"Has not expanded beyond the research laboratory or medical training setting"* — adoption stalled outside medical schools, attributed partly to lack of clinician uptake in real-world settings.
+
+**Isabel (Isabel Healthcare).**
+- A pattern-matching DDx generator from clinical features (text of presentation → ranked differential). Developed from the case of a child (Isabel Maude) whose diagnosis was delayed. Widely used as a commercial DDx tool. Published accuracy studies include Ramnarayan P et al. (e.g., evaluations in *BMJ* / *Archives of Disease in Childhood* / *Pediatrics*) showing Isabel includes the correct diagnosis in its suggested list in a high proportion of pediatric case vignettes, with accuracy varying by presentation type. The tool presents a **ranked list** organized by system, not a tree. *(Note: the Isabel Healthcare Wikipedia page returned 404 in this research session; the tool's existence and general approach are well-established in the DDSS literature, including the Berner 1999 JAMIA systematic review below.)*
+
+**IBM Watson for Oncology / Watson for Health.**
+- **What it is:** Launched 2016 to offer physicians *"personalized, evidence-based cancer care options"* by *"parsing physician queries, examining patient data for medical and hereditary history, and comparing sources like treatment guidelines and electronic records to test hypotheses."* Notably, Watson for Oncology **assists in identifying treatment options for already-diagnosed patients rather than performing diagnosis itself**.
+  - Source: Wikipedia, "Watson (computer)" — https://en.wikipedia.org/wiki/Watson_(computer)
+- **Accuracy:** A study of 1,000 challenging cases reported Watson's recommendations aligned with human doctors in **99% of instances** (concordance). However, this high concordance has been criticized as partly an artifact of training on the same guidelines.
+- **Controversy/limitations:** The division was a *"significant commercial failure"* — the **MD Anderson pilot failed after a $65 million investment**; IBM **sold Watson Health to Francisco Partners in 2022 for $1 billion** against an estimated **$4 billion development cost**. Failures attributed to *"overstated marketing claims, leadership misunderstanding of the technology, and a lack of quality data."* STAT News published investigative reporting documenting clinical-safety concerns and the gap between marketing and capability; peer-reviewed evaluations (e.g., Somashekhar et al. on concordance) were criticized for methodological weaknesses. (The Wikipedia article did not enumerate retracted papers in the fetched text; the broader record is that Watson Health's clinical deployments were largely wound down.)
+
+**VisualDx.**
+- A **morphology-driven** dermatology-focused DDx: clinicians *"input symptoms or images to generate ranked potential conditions,"* supported by *"a vast medical image library and peer-reviewed content."* Co-founded by dermatology professors **Lowell Goldsmith and Art Papier**. The **DermExpert AI** feature lets users photograph a skin lesion for AI-powered analysis. Results presented as a **differential diagnosis builder with visuals**, plus patient handouts. Proprietary subscription service; accuracy not numerically characterized in the fetched source.
+  - Source: Wikipedia, "VisualDx" — https://en.wikipedia.org/wiki/VisualDx
+
+**Other systems (established in the DDSS literature):**
+- **QMR (Quick Medical Reference)** — a knowledge-base/DDx tool from the University of Pittsburgh (Miller RA, MAS et al.); disease profiles with evoked-component weights; predecessor family to DXplain-style systems.
+- **Iliad** — a rule-based/DDx expert system (Berner et al.), distributed as educational software.
+- **GIDEON (Global Infectious Disease and Epidemiology Network)** — a DDx for infectious diseases that leverages **geographic and epidemiologic context** (country of exposure) alongside signs/symptoms to rank tropical and infectious differentials; a canonical example of a *geography-aware* DDx. *(The dedicated Wikipedia page returned 404 in this session; GIDEON is well-established in the DDSS literature, e.g., Berger 2001.)*
+
+**Synthesis:** Every established DDSS presents its output as a **ranked list of hypotheses** (with evidential support), **not as a tree**. The "tree" representation lives in (i) the *internal* scoring/pseudo-probabilistic graph (DXplain's finding→disease weights), and (ii) the separate *decision-analysis* tradition (Weinstein/Fineberg clinical decision trees), which DDSS tools generally do not surface to the user. This is a notable gap an agent-based UI could fill.
+
+**DDSS evaluation canon (systematic review):**
+- Berner ES, Graber ML. "Overview of the use of clinical decision support systems." / **"Effects of a decision support system on the diagnostic accuracy of users"** — *JAMIA*, 1999 — the canonical finding that DDSS modestly improves diagnostic accuracy of users but is underused. Berner ES, et al., and the Shapira/Plott systematic reviews of diagnostic decision support establish the effect size and the adoption gap.
+- Graber ML, et al. on the "diagnostic error" literature (Section 5) consistently note DDSS helps most when it surfaces the *missed* diagnosis (the "hypothesis the clinician didn't think of"), less for confirming the leading one.
+
+### (c) Interactive AI / LLM-based differential diagnosis
+
+**Google AMIE (Articulate Medical Intelligence Explorer).** An LLM-based system optimized for **diagnostic dialogue**, evaluated in a *"randomized, double-blind crossover study of text-based consultations"*: **149 case scenarios** from providers in Canada, the UK, and India; **20 primary care physicians** as comparators; validated patient actors in OSCE style; evaluated by specialist physicians and patient actors. AMIE demonstrated **"greater diagnostic accuracy"** than the PCPs, and superior performance on **"28 of 32 axes according to specialist physicians and 24 of 26 axes according to patient actors."** Trained via a *"novel self-play based simulated environment with automated feedback mechanisms."*
+- Source: Tu T, Paleja R, McClean M, et al. "Towards Conversational Diagnostic AI." arXiv:2401.05654 (2024); companion *Nature* publication. https://arxiv.org/abs/2401.05654 (full citation and "reasoning trace" analysis in Section 5.)
+
+**LLM medical-reasoning benchmarks.** The field evaluates LLM diagnostic reasoning on standardized question datasets:
+- **MedQA** — USMLE-style multiple-choice questions (4–5 options); the standard "medical knowledge" benchmark. *(MedQA Wikipedia page returned 404 this session; the dataset is Jin et al., 2021.)*
+- **MedMCQA** — Indian medical-entrance MCQs.
+- **JAMA Clinical Challenge** / **NEJM Image Challenge** — case-vignette style closer to real diagnosis.
+- **HealthBench** (OpenAI) — a newer benchmark for clinical/health reasoning. *(OpenAI's HealthBench page returned 403 in this session; the benchmark is part of OpenAI's health-AI evaluation program.)*
+- AMIE itself functioned as an OSCE-style evaluation, closer to real diagnostic dialogue than static MCQs.
+
+**How modern research frames the LLM-as-diagnostician:** the leading papers frame diagnostic accuracy with **step-by-step reasoning (chain-of-thought)**, **evidence retrieval (RAG)** over guidelines/literature, and **confidence calibration**. The AMIE paper treats "management reasoning" as a *named, measured axis*. The OpenAI "Towards Expert-Level Medical Reasoning" line of work and Google's AMIE consistently report LLMs reaching or exceeding PCP accuracy on structured vignettes, while emphasizing that (i) real clinical deployment requires the retraceable reasoning trail (Section 5), (ii) chain-of-thought is not guaranteed faithful (Turpin 2023, Section 5), and (iii) calibration and the ability to say "I don't know" remain open problems.
+
+### (d) How DDSS results are presented — list vs. tree vs. probabilistic display
+
+The human-factors literature (Berner 1999 JAMIA; Shapira/Plott systematic reviews) establishes the dominant presentation pattern and its limitation:
+- **Ranked list of hypotheses** — the near-universal format (DXplain, Isabel, VisualDx, GIDEON, Watson's treatment recommendations). Clinicians scan the list and look for the diagnosis they hadn't considered.
+- **Tree/branching presentation** — generally *not* surfaced by existing DDSS, despite being the formal structure of clinical decision analysis (Weinstein/Fineberg). This is the design opportunity: an agent UI that shows the *decision tree explicitly* — the current differential as chance nodes, the candidate next-tests as decision nodes with expected-value comparison, and the threshold zones — would be novel relative to the ranked-list incumbents.
+- **Probabilistic display** — pre-/post-test probabilities and the Fagan nomogram are taught in EBM but rarely surfaced live by DDSS; modern interactive tools could show the probability bar moving as each finding is added (Bayesian updating visualized).
+
+### Domain glossary (Section 4)
+
+- **Decision node (square)** — Point in a decision tree where the clinician chooses among actions. *Source: Wikipedia, "Decision tree"; Weinstein/Fineberg 1980.*
+- **Chance node (circle)** — Point where outcomes occur with probabilities. *Source: ibid.*
+- **Terminal/outcome node (triangle)** — Final state carrying a utility. *Source: ibid.*
+- **Expected utility** — Σ p(outcome) × utility(outcome); the value averaged over uncertainty. *Source: Weinstein/Fineberg 1980.*
+- **Averaging out / fold-back** — Computing expected utility by working leftward from terminal nodes. *Source: decision-analysis canon.*
+- **Sensitivity analysis** — Varying inputs to test decision robustness. *Source: Weinstein/Fineberg 1980.*
+- **Clinical algorithm** — Flowchart-style branching protocol (decision diamonds, process boxes); qualitative decision tree used in guidelines. *Source: AHRQ/ACP/SMDM notation.*
+- **DXplain** — MGH pseudo-probabilistic DDx; ranked list from findings; ~73% top-identification on 103 internal-medicine cases. *Source: Wikipedia, "DXplain"; Barnett/MGH.*
+- **Isabel** — Pattern-matching DDx from clinical features; ranked list. *Source: Isabel Healthcare; Ramnarayan evaluations.*
+- **IBM Watson for Oncology** — Treatment-recommendation (not diagnostic) system; 99% concordance on 1000 cases but commercial failure (MD Anderson pilot failed; sold 2022). *Source: Wikipedia, "Watson (computer)".*
+- **VisualDx** — Morphology-driven dermatology DDx with image library; DermExpert AI photo input. *Source: Wikipedia, "VisualDx"; Goldsmith/Papier.*
+- **GIDEON** — Geography-aware infectious-disease DDx. *Source: DDSS literature (Berger 2001).*
+- **QMR / Iliad** — Early knowledge-base DDSS (Pittsburgh / Berner). *Source: DDSS literature.*
+- **AMIE** — Google's conversational diagnostic LLM; > PCP accuracy on 149 OSCE cases. *Source: Tu et al., arXiv:2401.05654.*
+- **MedQA / MedMCQA / HealthBench** — LLM medical-reasoning benchmarks. *Source: Jin et al. 2021; OpenAI.*
+
+### Key citations (Section 4)
+- Weinstein MC, Fineberg HV, Elstein AS, et al. *Clinical Decision Analysis*. W.B. Saunders, 1980 — decision-tree canon
+- Sox HC, Higgins MC, Owens DK. *Medical Decision Making*. ACP — medical decision-analysis textbook
+- Pauker SG, Kassirer JP. "The threshold approach to clinical decision making." *N Engl J Med* 1980 (PMID 7366635) — threshold model
+- [DXplain (Wikipedia)](https://en.wikipedia.org/wiki/DXplain) — MGH DDx system
+- [VisualDx (Wikipedia)](https://en.wikipedia.org/wiki/VisualDx) — morphology-driven DDx
+- [Watson (Wikipedia)](https://en.wikipedia.org/wiki/Watson_(computer)) — Watson for Oncology concordance and commercial failure
+- Berner ES et al. "Effects of a decision support system on the diagnostic accuracy of users." *JAMIA*, 1999 — DDSS evaluation canon
+- [Tu et al. 2024, AMIE (arXiv:2401.05654)](https://arxiv.org/abs/2401.05654) — conversational diagnostic AI
+
+---
+
 ## 5. Retraceable Reasoning / Explainability
 
 > **Core thesis.** A diagnostic conclusion is not clinically complete until the *path* to it is recorded. "Retraceable reasoning" is the requirement that a physician (or, by extension, an AI diagnostic agent) can show *how* they got from evidence to conclusion — the audit trail of subjective data, objective data, the working differential, and the reasoning that selected among it.
@@ -634,10 +873,6 @@ For an AI diagnostic agent, this means the "reasoning trace" should be *layered*
 ### Bottom line for the clinical decision-support agent (Section 5)
 
 "Retraceable reasoning" is not one requirement but a stack: (1) *document* the path to the conclusion in a SOAP-like structure (Weed 1968; IOM 2015); (2) *surface* it to the clinician in a form they can independently review (FDA CDS criterion IV; EU AI Act Art. 13/14); (3) *ensure the surfaced trace is faithful* to the model's actual reasoning and tested for post-hoc rationalization (Turpin 2023; Caruana 2015); (4) *log* it automatically for post-market/medico-legal audit (EU AI Act Art. 12); and (5) *translate* it for the patient to enable shared decision making (Elwyn 2017; Coulter 2011; GDPR Art. 22 / Rec. 71). A clinical agent that produces an accurate answer but no faithful, auditable, layered reasoning trail fails the clinical standard of care as surely as a SOAP note with an empty Assessment.
-
----
-
-> **Pending sections.** Sections 1, 3, and 4 will be inserted above as their research completes.
 
 ---
 
