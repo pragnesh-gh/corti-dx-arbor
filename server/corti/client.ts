@@ -11,17 +11,20 @@
  * never serialized, never returned to callers.
  */
 
+import { randomUUID } from "node:crypto";
 import type {
   AgentCreateRequest,
   AgentResponse,
   AgentsListResponse,
   A2ASendMessageRequest,
   A2ASendMessageResponse,
+  A2ATask,
   RegistryConnectorsResponse,
   A2AStreamResponse,
 } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 240_000; // platform can take minutes on expert-chained calls
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export interface CortiConfig {
   apiBaseUrl: string; // https://api.dev-weu.corti.app (or eu / staging-eu / us / local)
@@ -248,6 +251,94 @@ export class CortiClient {
         headers: { "A2A-Version": this.cfg.a2aVersion || "1.0" },
       },
     );
+  }
+
+  /** Fetch a task by id (A2A REST: GET .../a2a/tasks/{taskId}). */
+  getTask(agentId: string, taskId: string): Promise<A2ATask> {
+    return this.request<A2ATask>(
+      "GET",
+      `/v2/agentic/agents/${agentId}/a2a/tasks/${taskId}`,
+      { headers: { "A2A-Version": this.cfg.a2aVersion || "1.0" } },
+    );
+  }
+
+  /** List recent tasks for an agent (A2A REST: GET .../a2a/tasks). */
+  listTasks(agentId: string, pageSize = 20): Promise<{ tasks: A2ATask[]; nextPageToken?: string }> {
+    return this.request<{ tasks: A2ATask[]; nextPageToken?: string }>(
+      "GET",
+      `/v2/agentic/agents/${agentId}/a2a/tasks`,
+      {
+        params: { pageSize },
+        headers: { "A2A-Version": this.cfg.a2aVersion || "1.0" },
+      },
+    );
+  }
+
+  /**
+   * Send a message and reliably get the completed task result.
+   *
+   * The dev-weu gateway intermittently returns a plain-text "404 page not
+   * found" on POST .../a2a/message:send for long-running calls, even though
+   * the underlying task executes and completes (~1-3 min). So when send
+   * returns a task, poll its status to TASK_STATE_COMPLETED. When send 404s
+   * or times out, the task is still running in the background — recover it by
+   * listing the agent's tasks and finding ours by messageId, then poll that
+   * task to completion.
+   */
+  async sendMessageReliable(
+    agentId: string,
+    payload: A2ASendMessageRequest,
+    opts: { timeoutMs?: number; pollMs?: number; signal?: AbortSignal } = {},
+  ): Promise<A2ASendMessageResponse> {
+    const pollMs = opts.pollMs ?? 5000;
+    const deadline = Date.now() + (opts.timeoutMs ?? 300_000); // 5 min budget
+    const messageId = payload.message.messageId ?? randomUUID();
+
+    // 1) Try message:send. If it returns a task, poll it to completed.
+    let resp: A2ASendMessageResponse | null = null;
+    try {
+      resp = await this.sendMessage(agentId, { ...payload, message: { ...payload.message, messageId } });
+    } catch (e) {
+      // 404/timeout: the task is likely still running in the background —
+      // fall through to task recovery by messageId.
+      const msg = (e as Error)?.message || "";
+      if (!/404|timeout|aborted|fetch failed|ECONNRESET|ETIMEDOUT/i.test(msg)) throw e;
+      console.log(`[arbor] send failed ("${msg.slice(0, 60)}"); recovering task by messageId...`);
+    }
+
+    let taskId = resp?.task?.id;
+    if (!taskId) {
+      // Recover: list tasks and find the one whose status.message.messageId
+      // (or history) matches ours. The most-recent task is usually ours.
+      for (let i = 0; i < 12 && !taskId; i++) {
+        try {
+          const { tasks } = await this.listTasks(agentId, 20);
+          // Prefer a task whose messageId matches ours; else newest non-completed.
+          const byMsg = tasks.find((t) => t.status?.message?.messageId === messageId);
+          taskId = byMsg?.id ?? (tasks[0]?.id ?? undefined);
+          if (taskId && byMsg) break;
+          if (taskId) break;
+        } catch { /* list may also 404 transiently — retry */ }
+        await sleep(pollMs);
+      }
+      if (!taskId) throw new Error("Could not recover a task id for the sent message.");
+    }
+
+    // 2) Poll the task until completed (or failed), up to the deadline.
+    let task: A2ATask | undefined = resp?.task;
+    while (Date.now() < deadline) {
+      if (task) {
+        const state = task.status?.state ?? "";
+        if (/completed/i.test(state)) return { task, contextId: task.contextId };
+        if (/failed|cancelled|canceled/i.test(state)) {
+          throw new Error(`Task ${taskId} ended in state ${state}.`);
+        }
+      }
+      await sleep(pollMs);
+      try { task = await this.getTask(agentId, taskId!); }
+      catch { /* transient 404 on getTask — keep polling */ }
+    }
+    throw new Error(`Task ${taskId} did not complete before the 5-min deadline.`);
   }
 
   /**

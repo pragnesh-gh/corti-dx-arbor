@@ -206,13 +206,24 @@ ${renderFindings(c)}
 TASK
 Update the differential. Emit the FULL set of live hypotheses with updated probabilities (hypotheses that are now ruled out should be omitted from "hypotheses" but named in rulesOut). Branch (set parent) when a finding splits a hypothesis. Return ONLY the JSON object matching the schema: { hypotheses:[{name, description?, codes?, probability(0-100), isZebra?, baseRateNote?, parent?, rulesOut?:[name], discriminatingTests?:[{name, rationale, discriminatesBetween?:[name]}]}], findings?:[{summary, detail?, direction?, hypothesisNames?, citation?, source?}], message:string, decision:{kind:"converged"|"test"|"gather", ...} }`;
 
-  const resp = await withRetry(() =>
-    client.sendMessage(agentId, {
-      message: { role: "ROLE_USER", parts: [{ kind: "text", text: prompt }] },
-    }),
-  );
+  // Use the reliable send: POST message:send, then poll the task to
+  // completion. The dev-weu gateway often returns a plain-text 404 on the
+  // send response for long-running calls even though the task runs and
+  // completes in the background (~1-3 min). sendMessageReliable recovers
+  // the task by messageId and polls it, so we get the result regardless of
+  // whether the send response itself 404s.
+  const resp = await client.sendMessageReliable(agentId, {
+    message: { role: "ROLE_USER", parts: [{ kind: "text", text: prompt }] },
+  });
 
-  const rawText = textOf(resp.message) || textOf(resp.task?.status?.message);
+  const rawText =
+    textOf(resp.message) ||
+    textOf(resp.task?.status?.message) ||
+    (resp.task?.artifacts || [])
+      .flatMap((a) => (a.parts || []).map((p) => p.text || ""))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
   const parsed = extractJson(rawText) as EngineRawResponse | null;
 
   if (!parsed || !Array.isArray(parsed.hypotheses)) {
