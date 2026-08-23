@@ -190,6 +190,7 @@ export async function runRound(
   client: CortiClient,
   agentId: string,
   c: Case,
+  opts: { onStaleAgent?: (agentId: string) => Promise<string | void> } = {},
 ): Promise<EngineRoundResult> {
   c.round += 1;
   const round = c.round;
@@ -212,9 +213,11 @@ Update the differential. Emit the FULL set of live hypotheses with updated proba
   // completes in the background (~1-3 min). sendMessageReliable recovers
   // the task by messageId and polls it, so we get the result regardless of
   // whether the send response itself 404s.
-  const resp = await client.sendMessageReliable(agentId, {
-    message: { role: "ROLE_USER", parts: [{ kind: "text", text: prompt }] },
-  });
+  const resp = await client.sendMessageReliable(
+    agentId,
+    { message: { role: "ROLE_USER", parts: [{ kind: "text", text: prompt }] } },
+    { onStaleAgent: opts.onStaleAgent },
+  );
 
   const rawText =
     textOf(resp.message) ||

@@ -167,7 +167,16 @@ app.post("/api/cases/:id/advance", async (req, res) => {
       const t = team ?? (await getTeam().catch(() => null));
       const agentId = t ? t.hypothesisEngine.id : await getHypothesisEngineId();
       try {
-        result = await runRound(client, agentId, c);
+        // onStaleAgent: if send 404s repeatedly (agent created in an earlier
+        // platform window), recreate the hypothesis engine in the current
+        // window and send to the fresh id. Returns the fresh agentId.
+        const onStaleAgent = async (oldId: string): Promise<string | void> => {
+          if (!team) return;
+          if (team.hypothesisEngine.id !== oldId) return team.hypothesisEngine.id;
+          const fresh = await recreateAgent(client, team, "hypothesisEngine");
+          return fresh.id;
+        };
+        result = await runRound(client, agentId, c, { onStaleAgent });
       } catch (e) {
         lastErr = e;
         if (!/404 page not found|404/i.test((e as Error).message || "")) throw e;

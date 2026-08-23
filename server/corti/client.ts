@@ -288,7 +288,15 @@ export class CortiClient {
   async sendMessageReliable(
     agentId: string,
     payload: A2ASendMessageRequest,
-    opts: { timeoutMs?: number; pollMs?: number; signal?: AbortSignal } = {},
+    opts: {
+      timeoutMs?: number;
+      pollMs?: number;
+      signal?: AbortSignal;
+      /** Called when the send has 404'd several times in a row (the agent is
+       * likely stale — created in an earlier platform window). May return a
+       * fresh agentId to send to instead. Throwing aborts the loop. */
+      onStaleAgent?: (agentId: string) => Promise<string | void>;
+    } = {},
   ): Promise<A2ASendMessageResponse> {
     const pollMs = opts.pollMs ?? 5000;
     const deadline = Date.now() + (opts.timeoutMs ?? 360_000); // 6 min budget
@@ -297,18 +305,20 @@ export class CortiClient {
     // The dev-weu platform has two failure modes for long-running sends:
     //   (a) the send reaches the platform, a task is created and runs (~1-3
     //       min), but the send RESPONSE comes back as 404 / "fetch failed".
-    //   (b) the platform is in a fully-down window and the send never
-    //       reaches it at all (even list/get 404).
+    //   (b) the agent is stale (created in an earlier window) or the platform
+    //       is fully down, and the send 404s without creating a task.
     // So we loop: retry the send (each reach creates a task), and on every
-    // iteration also try to recover+poll a task by messageId. Whichever path
-    // yields a completed task wins. We keep the same messageId across send
-    // retries so the platform de-dupes / we can match the task.
+    // iteration also try to recover+poll a task by messageId. After several
+    // consecutive send-404s we invoke onStaleAgent (recreate) to get a fresh
+    // agent in the current window. Whichever path yields a completed task wins.
     let knownTaskId: string | undefined;
+    let currentAgentId = agentId;
     let lastErr = "";
+    let consecutiveSend404 = 0;
     while (Date.now() < deadline) {
       // Try to send. A successful send returns a task (maybe working/completed).
       try {
-        const resp = await this.sendMessage(agentId, {
+        const resp = await this.sendMessage(currentAgentId, {
           ...payload,
           message: { ...payload.message, messageId: baseMessageId },
         });
@@ -321,14 +331,28 @@ export class CortiClient {
       } catch (e) {
         lastErr = (e as Error)?.message || "";
         if (!/404|timeout|aborted|fetch failed|ECONNRESET|ETIMEDOUT|stream|reset/i.test(lastErr)) throw e;
+        const is404 = /404 page not found|HTTP 404/i.test(lastErr);
+        consecutiveSend404 = is404 ? consecutiveSend404 + 1 : 0;
         console.log(`[arbor] send failed ("${lastErr.slice(0, 60)}"); will retry send + recover task...`);
+        // If the send has 404'd several times in a row, the agent is likely
+        // stale (created in an earlier platform window). Ask the caller to
+        // recreate it so we send to a fresh agent in the current window.
+        if (is404 && consecutiveSend404 >= 3 && opts.onStaleAgent) {
+          try {
+            console.log(`[arbor] ${consecutiveSend404} consecutive send-404s — recreating agent...`);
+            const fresh = await opts.onStaleAgent(currentAgentId);
+            if (fresh) { currentAgentId = fresh; knownTaskId = undefined; consecutiveSend404 = 0; }
+          } catch (re) {
+            console.log(`[arbor] recreate failed ("${(re as Error).message.slice(0, 60)}"); will keep retrying...`);
+          }
+        }
       }
 
       // Try to recover a task by messageId (case a: send reached platform
       // but the response 404'd; the task exists and may be running/completed).
       if (!knownTaskId) {
         try {
-          const { tasks } = await this.listTasks(agentId, 30);
+          const { tasks } = await this.listTasks(currentAgentId, 30);
           const byMsg = tasks.find((t) => t.status?.message?.messageId === baseMessageId);
           knownTaskId = byMsg?.id;
           if (!knownTaskId && tasks[0]?.status?.message?.messageId) {
@@ -347,7 +371,7 @@ export class CortiClient {
         while (Date.now() < taskDeadline && Date.now() < deadline) {
           await sleep(pollMs);
           try {
-            const task = await this.getTask(agentId, knownTaskId);
+            const task = await this.getTask(currentAgentId, knownTaskId);
             const state = task.status?.state ?? "";
             if (/completed/i.test(state)) return { task, contextId: task.contextId };
             if (/failed|cancelled|canceled/i.test(state)) {
