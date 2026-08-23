@@ -20,7 +20,25 @@
  * result, then /advance again. The cycle continues until "converged".
  */
 
-import "dotenv/config";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import dotenv from "dotenv";
+
+// Load .env from the repo root, not just the server/ workspace dir. The dev
+// script runs `tsx watch index.ts` with cwd=server/, so dotenv/config (which
+// reads process.cwd()/.env) would miss the root .env. Walk up to find it.
+(function loadRootEnv() {
+  let dir = process.cwd();
+  for (let i = 0; i < 6; i++) {
+    const candidate = path.join(dir, ".env");
+    if (fs.existsSync(candidate)) { dotenv.config({ path: candidate }); return; }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // fall back to default behavior (process.cwd()/.env)
+  dotenv.config();
+})();
 import cors from "cors";
 import express from "express";
 
