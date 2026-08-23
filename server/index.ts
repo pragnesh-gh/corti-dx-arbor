@@ -43,7 +43,7 @@ import cors from "cors";
 import express from "express";
 
 import { CortiClient } from "./corti/client.js";
-import { provisionTeam, teardownTeam, type AgentTeam } from "./domain/agent-manager.js";
+import { provisionTeam, teardownTeam, recreateAgent, type AgentTeam } from "./domain/agent-manager.js";
 import { store } from "./domain/case-store.js";
 import { createCase } from "./domain/case-factory.js";
 import { recordFinding, runRound, setWorkingDiagnosis, withRetry } from "./domain/engine.js";
@@ -57,7 +57,33 @@ app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
 let client: CortiClient;
-let team: AgentTeam;
+let team: AgentTeam | null = null;
+let teamPromise: Promise<AgentTeam> | null = null;
+
+/** Resolve the agent team, waiting for the background boot-time provisioning if
+ * it's still in flight. Handlers call this instead of touching `team` directly. */
+async function getTeam(): Promise<AgentTeam> {
+  if (team) return team;
+  if (!teamPromise) teamPromise = provisionTeam(client).then((t) => { team = t; return t; });
+  return teamPromise;
+}
+
+/** Get the hypothesis-engine id, waiting for the team. If the team provision
+ * itself 404'd (platform in a down window at boot), this re-attempts provisioning. */
+async function getHypothesisEngineId(): Promise<string> {
+  for (let i = 0; i < 4; i++) {
+    try {
+      const t = await getTeam();
+      return t.hypothesisEngine.id;
+    } catch (e) {
+      // provisioning 404'd in a platform down window — reset and retry shortly
+      teamPromise = null;
+      console.log(`[arbor] team not ready yet (${(e as Error).message.slice(0, 60)}); retrying...`);
+      await new Promise((r) => setTimeout(r, 4000));
+    }
+  }
+  throw new Error("Agent team unavailable — the dev-weu platform is in a 404 window. Retry in a moment.");
+}
 
 // ---- SSE fan-out (per-case live subscribers) ------------------------------
 
@@ -129,7 +155,30 @@ app.post("/api/cases/:id/advance", async (req, res) => {
     return;
   }
   try {
-    const result = await runRound(client, team.hypothesisEngine.id, c);
+    // Self-heal across dev-weu platform "window" flaps: an agent created in an
+    // earlier window reliably 404s on /a2a/message:send once the platform flips
+    // to a new window. If a round 404s, recreate the hypothesis engine (which
+    // also retries across windows via withRetry) and retry the round. Loop a
+    // few times so we ride out a 404 window into the next working one.
+    // (runRound increments c.round at the top; we undo that on each retry.)
+    let result: Awaited<ReturnType<typeof runRound>> | undefined;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 4 && !result; attempt++) {
+      const t = team ?? (await getTeam().catch(() => null));
+      const agentId = t ? t.hypothesisEngine.id : await getHypothesisEngineId();
+      try {
+        result = await runRound(client, agentId, c);
+      } catch (e) {
+        lastErr = e;
+        if (!/404 page not found|404/i.test((e as Error).message || "")) throw e;
+        console.log(`[arbor] round 404'd (attempt ${attempt + 1}/4) — recreating hypothesis engine and retrying...`);
+        c.round -= 1; // undo runRound's top-of-function increment before retry
+        try { if (team) await recreateAgent(client, team, "hypothesisEngine"); }
+        catch (re) { console.log(`[arbor] recreate also 404'd (platform down window); will retry...`); }
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    }
+    if (!result) throw lastErr;
     // Apply the decision's effects.
     if (result.decision.kind === "converged") {
       setWorkingDiagnosis(c, result.decision.hypothesisId, result.decision.confidence, result.message);
@@ -233,7 +282,8 @@ app.post("/api/cases/:id/treat", async (req, res) => {
     return;
   }
   try {
-    const plan = await buildTreatmentPlan(client, team.treatmentPlanner.id, c);
+    const t = await getTeam();
+    const plan = await buildTreatmentPlan(client, t.treatmentPlanner.id, c);
     store.update(c.id, () => {});
     emit(c.id, { kind: "treatment", payload: plan });
     res.json(store.snapshot(c.id));
@@ -258,8 +308,9 @@ app.post("/api/cases/:id/chat", async (req, res) => {
   }
   try {
     const prompt = `CASE: ${summarize(c)}\n\nCLINICIAN QUESTION: ${body.message}\n\nAnswer concisely as decision support, referencing the current differential where relevant. Do not state diagnoses as certain.`;
+    const ct = await getTeam();
     const resp = await withRetry(() =>
-      client.sendMessage(team.hypothesisEngine.id, {
+      client.sendMessage(ct.hypothesisEngine.id, {
         message: { role: "ROLE_USER", parts: [{ kind: "text", text: prompt }] },
       }),
     );
@@ -322,16 +373,33 @@ app.get("/api/cases/:id/stream", (req, res) => {
 async function main() {
   client = CortiClient.fromEnv();
   console.log("[arbor] Corti client ready (dev-weu).");
-  team = await provisionTeam(client);
+
+  // Start listening IMMEDIATELY so the UI + health endpoint stay up even while
+  // the platform is in a 404 window. Provisioning the team happens in the
+  // background with retries; handlers that need the team await it. (The
+  // dev-weu platform flaps between working and 404 windows on a sub-minute
+  // cadence — booting must not depend on catching a working window.)
   app.listen(PORT, () => {
     console.log(`[arbor] server listening on http://localhost:${PORT}`);
-    console.log(`[arbor] hypothesis engine id: ${team.hypothesisEngine.id}`);
   });
+
+  // Provision the team in the background, retrying across platform 404 windows.
+  teamPromise = provisionTeam(client)
+    .then((t) => {
+      team = t;
+      console.log(`[arbor] team ready. hypothesis engine id: ${t.hypothesisEngine.id}`);
+      return t;
+    })
+    .catch((e) => {
+      console.error("[arbor] initial team provision failed:", (e as Error).message);
+      teamPromise = null; // allow getTeam to retry on demand
+      throw e;
+    });
 
   const shutdown = async (sig: string) => {
     console.log(`\n[arbor] ${sig} received, tearing down…`);
     try {
-      await teardownTeam(client, team);
+      if (team) await teardownTeam(client, team);
     } catch (e) {
       console.warn("[arbor] teardown error:", (e as Error).message);
     }

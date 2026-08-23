@@ -71,6 +71,28 @@ export async function provisionTeam(client: CortiClient): Promise<AgentTeam> {
   return team;
 }
 
+/** Recreate a single team agent by role, returning the fresh agent. Used to
+ * self-heal across dev-weu platform "window" flaps: an agent created in an
+ * earlier window reliably 404s on /a2a/message:send once the platform flips
+ * to a new window, while a freshly-created agent in the current window works.
+ * Deleting the stale one first is best-effort (it often 404s too). */
+export async function recreateAgent(
+  client: CortiClient,
+  team: AgentTeam,
+  role: keyof AgentTeam,
+): Promise<AgentResponse> {
+  const def = DEFS[role]();
+  const stale = team[role];
+  if (stale) {
+    try { await client.deleteAgent(stale.id); }
+    catch { /* stale agent often 404s on delete too — ignore */ }
+  }
+  const created = await withRetry(() => client.createAgent(def));
+  team[role] = created;
+  console.log(`[arbor] recreated agent ${role}: ${created.id} (${created.name})`);
+  return created;
+}
+
 /** Delete the team (best effort, on shutdown if ephemeral). */
 export async function teardownTeam(client: CortiClient, team: AgentTeam): Promise<void> {
   for (const key of Object.keys(team) as (keyof AgentTeam)[]) {
