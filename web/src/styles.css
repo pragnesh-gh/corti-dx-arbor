@@ -211,7 +211,8 @@ button.ghost {
 .msg.engine_message { border-left: 3px solid var(--accent); }
 .msg.diagnosis { border-left: 3px solid var(--confirmed); background: var(--bg-elev-2); }
 .msg.treatment { border-left: 3px solid var(--branched); }
-.chat-actions { display: flex; gap: 8px; padding: 8px 14px; flex-wrap: wrap; }
+.chat-actions { display: flex; gap: 8px; padding: 8px 14px; flex-wrap: wrap; align-items: center; }
+.slow-hint { line-height: 1.35; }
 .chat-input { display: flex; gap: 8px; padding: 0 14px 12px; }
 .chat-input textarea { resize: vertical; }
 .hitl-banner {

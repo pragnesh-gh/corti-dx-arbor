@@ -5,7 +5,7 @@
  * order a test result, and answer the HITL prompt.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Case, CaseEvent } from "./types.js";
 import * as api from "./api.js";
 
@@ -19,6 +19,17 @@ interface Props {
 export function ChatPanel({ c, onUpdated, busy, setBusy }: Props) {
   const [msg, setMsg] = useState("");
   const [reply, setReply] = useState<string | null>(null);
+  const [slow, setSlow] = useState(false);
+
+  // While a round is in flight, show a "still thinking" hint after a few
+  // seconds so the clinician isn't left guessing whether it's hung. Rounds
+  // legitimately take 30–90s (the engine fans out to expert agents); the
+  // dev-weu platform can also retry through 404 windows, adding more time.
+  useEffect(() => {
+    if (!busy) { setSlow(false); return; }
+    const t = setTimeout(() => setSlow(true), 6000);
+    return () => clearTimeout(t);
+  }, [busy, c.round]);
 
   const events = c.events.filter(
     (e) => e.kind === "engine_message" || e.kind === "diagnosis" || e.kind === "treatment",
@@ -109,8 +120,14 @@ export function ChatPanel({ c, onUpdated, busy, setBusy }: Props) {
 
       <div className="chat-actions">
         <button onClick={runRound} disabled={busy || c.status === "closed"}>
-          {busy ? "…" : "Advance a round"}
+          {busy ? "Thinking…" : "Advance a round"}
         </button>
+        {busy && slow && (
+          <span className="muted small slow-hint">
+            still working — the engine fans out to expert agents, and the dev-weu
+            platform can retry through 404 windows. This can take a minute or two.
+          </span>
+        )}
         {c.status === "reasoning" && (
           <button onClick={diagnose} disabled={busy} className="ghost">
             Set working dx
