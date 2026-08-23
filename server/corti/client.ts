@@ -291,54 +291,83 @@ export class CortiClient {
     opts: { timeoutMs?: number; pollMs?: number; signal?: AbortSignal } = {},
   ): Promise<A2ASendMessageResponse> {
     const pollMs = opts.pollMs ?? 5000;
-    const deadline = Date.now() + (opts.timeoutMs ?? 300_000); // 5 min budget
-    const messageId = payload.message.messageId ?? randomUUID();
+    const deadline = Date.now() + (opts.timeoutMs ?? 360_000); // 6 min budget
+    const baseMessageId = payload.message.messageId ?? randomUUID();
 
-    // 1) Try message:send. If it returns a task, poll it to completed.
-    let resp: A2ASendMessageResponse | null = null;
-    try {
-      resp = await this.sendMessage(agentId, { ...payload, message: { ...payload.message, messageId } });
-    } catch (e) {
-      // 404/timeout: the task is likely still running in the background —
-      // fall through to task recovery by messageId.
-      const msg = (e as Error)?.message || "";
-      if (!/404|timeout|aborted|fetch failed|ECONNRESET|ETIMEDOUT/i.test(msg)) throw e;
-      console.log(`[arbor] send failed ("${msg.slice(0, 60)}"); recovering task by messageId...`);
-    }
-
-    let taskId = resp?.task?.id;
-    if (!taskId) {
-      // Recover: list tasks and find the one whose status.message.messageId
-      // (or history) matches ours. The most-recent task is usually ours.
-      for (let i = 0; i < 12 && !taskId; i++) {
-        try {
-          const { tasks } = await this.listTasks(agentId, 20);
-          // Prefer a task whose messageId matches ours; else newest non-completed.
-          const byMsg = tasks.find((t) => t.status?.message?.messageId === messageId);
-          taskId = byMsg?.id ?? (tasks[0]?.id ?? undefined);
-          if (taskId && byMsg) break;
-          if (taskId) break;
-        } catch { /* list may also 404 transiently — retry */ }
-        await sleep(pollMs);
-      }
-      if (!taskId) throw new Error("Could not recover a task id for the sent message.");
-    }
-
-    // 2) Poll the task until completed (or failed), up to the deadline.
-    let task: A2ATask | undefined = resp?.task;
+    // The dev-weu platform has two failure modes for long-running sends:
+    //   (a) the send reaches the platform, a task is created and runs (~1-3
+    //       min), but the send RESPONSE comes back as 404 / "fetch failed".
+    //   (b) the platform is in a fully-down window and the send never
+    //       reaches it at all (even list/get 404).
+    // So we loop: retry the send (each reach creates a task), and on every
+    // iteration also try to recover+poll a task by messageId. Whichever path
+    // yields a completed task wins. We keep the same messageId across send
+    // retries so the platform de-dupes / we can match the task.
+    let knownTaskId: string | undefined;
+    let lastErr = "";
     while (Date.now() < deadline) {
-      if (task) {
-        const state = task.status?.state ?? "";
-        if (/completed/i.test(state)) return { task, contextId: task.contextId };
-        if (/failed|cancelled|canceled/i.test(state)) {
-          throw new Error(`Task ${taskId} ended in state ${state}.`);
+      // Try to send. A successful send returns a task (maybe working/completed).
+      try {
+        const resp = await this.sendMessage(agentId, {
+          ...payload,
+          message: { ...payload.message, messageId: baseMessageId },
+        });
+        if (resp.task?.id) knownTaskId = resp.task.id;
+        const st = resp.task?.status?.state ?? "";
+        if (/completed/i.test(st)) return resp;
+        if (/failed|cancelled|canceled/i.test(st)) {
+          throw new Error(`Task ${knownTaskId} ended in state ${st}.`);
+        }
+      } catch (e) {
+        lastErr = (e as Error)?.message || "";
+        if (!/404|timeout|aborted|fetch failed|ECONNRESET|ETIMEDOUT|stream|reset/i.test(lastErr)) throw e;
+        console.log(`[arbor] send failed ("${lastErr.slice(0, 60)}"); will retry send + recover task...`);
+      }
+
+      // Try to recover a task by messageId (case a: send reached platform
+      // but the response 404'd; the task exists and may be running/completed).
+      if (!knownTaskId) {
+        try {
+          const { tasks } = await this.listTasks(agentId, 30);
+          const byMsg = tasks.find((t) => t.status?.message?.messageId === baseMessageId);
+          knownTaskId = byMsg?.id;
+          if (!knownTaskId && tasks[0]?.status?.message?.messageId) {
+            // newest task with a messageId we can't attribute — only take it if
+            // it's working/completed and we have no other candidate
+            const recent = tasks[0];
+            if (/working|completed/i.test(recent.status?.state ?? "")) knownTaskId = recent.id;
+          }
+        } catch { /* list 404s in a down window — retry next loop */ }
+      }
+
+      // Poll the known task to completion (case a recovery, or after a
+      // successful send that's still WORKING).
+      if (knownTaskId) {
+        const taskDeadline = Date.now() + 200_000; // up to ~3.3 min of polling
+        while (Date.now() < taskDeadline && Date.now() < deadline) {
+          await sleep(pollMs);
+          try {
+            const task = await this.getTask(agentId, knownTaskId);
+            const state = task.status?.state ?? "";
+            if (/completed/i.test(state)) return { task, contextId: task.contextId };
+            if (/failed|cancelled|canceled/i.test(state)) {
+              throw new Error(`Task ${knownTaskId} ended in state ${state}.`);
+            }
+            // still working — keep polling
+          } catch (e) {
+            if (/ended in state/i.test((e as Error).message)) throw e;
+            // getTask 404s transiently — keep polling
+          }
         }
       }
+
+      // No task recovered (case b: platform fully down) — back off and retry
+      // the whole send so a fresh attempt catches the next up-window.
       await sleep(pollMs);
-      try { task = await this.getTask(agentId, taskId!); }
-      catch { /* transient 404 on getTask — keep polling */ }
     }
-    throw new Error(`Task ${taskId} did not complete before the 5-min deadline.`);
+    throw new Error(
+      `Could not complete the round within the timeout. Last send error: ${lastErr.slice(0, 100)}. The dev-weu platform may be in a down window — retry the round.`,
+    );
   }
 
   /**
