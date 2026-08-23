@@ -24,12 +24,14 @@ import type {
 const DEFAULT_TIMEOUT_MS = 240_000; // platform can take minutes on expert-chained calls
 
 export interface CortiConfig {
-  apiBaseUrl: string; // https://api.dev-weu.corti.app
-  authBaseUrl: string; // https://auth.dev-weu.corti.app
+  apiBaseUrl: string; // https://api.dev-weu.corti.app (or eu / staging-eu / us / local)
+  authBaseUrl: string; // https://auth.<region>.corti.app (empty for local)
   clientId: string;
   clientSecret: string;
   tenant: string; // base — realm AND Tenant-Name header
   a2aVersion?: string; // default 1.0
+  region?: string; // dev-weu | eu | staging-eu | us | local (for diagnostics)
+  staticToken?: string; // local region uses a static token instead of OAuth
 }
 
 export class CortiClient {
@@ -41,28 +43,45 @@ export class CortiClient {
     this.cfg = { a2aVersion: "1.0", ...cfg };
   }
 
-  /** Build a CortiClient from process environment (dev-weu keys). */
+  /** Build a CortiClient from process environment.
+   *
+   * Region is selected by `CORTI_REGION` (default `dev-weu`). Each region reads
+   * its own `AGENT_API_URL_<REGION>`, `AGENT_API_AUTH_URL_<REGION>`,
+   * `AGENT_API_CLIENT_ID_<REGION>`, `AGENT_API_CLIENT_SECRET_<REGION>` env vars.
+   * Supported: `dev-weu`, `eu`, `staging-eu`, `us`, `local`.
+   * NOTE: as of 2026-08-23, dev-weu's `/a2a/message:send` returns a plain-text
+   * `404 page not found` while its agent CRUD works — the A2A route appears not
+   * to be routed on that deployment. `eu` is confirmed working end-to-end.
+   * Set `CORTI_REGION=eu` to run Arbor against the working deployment. */
   static fromEnv(env: NodeJS.ProcessEnv = process.env): CortiClient {
-    const required = [
-      "AGENT_API_URL_DEV_WEU",
-      "AGENT_API_AUTH_URL_DEV_WEU",
-      "AGENT_API_CLIENT_ID_DEV_WEU",
-      "AGENT_API_CLIENT_SECRET_DEV_WEU",
-    ] as const;
+    const region = (env.CORTI_REGION || "dev-weu").toLowerCase();
+    const suffix = region === "dev-weu" ? "DEV_WEU"
+      : region === "staging-eu" ? "STAGING_EU"
+      : region.toUpperCase(); // eu -> EU, us -> US, local -> LOCAL
+    const urlKey = region === "local" ? "AGENT_API_TOKEN_LOCAL"
+      : `AGENT_API_URL_${suffix}`;
+    const authKey = `AGENT_API_AUTH_URL_${suffix}`;
+    const idKey = `AGENT_API_CLIENT_ID_${suffix}`;
+    const secretKey = `AGENT_API_CLIENT_SECRET_${suffix}`;
+    const required = region === "local"
+      ? ["AGENT_API_TOKEN_LOCAL"] as const
+      : [urlKey, authKey, idKey, secretKey] as const;
     for (const k of required) {
       if (!env[k]) {
         throw new Error(
-          `Missing ${k}. Copy .env.example to .env and fill in dev-weu credentials.`,
+          `Missing ${k} (CORTI_REGION=${region}). Copy .env.example to .env and fill in ${region} credentials.`,
         );
       }
     }
     return new CortiClient({
-      apiBaseUrl: env.AGENT_API_URL_DEV_WEU as string,
-      authBaseUrl: env.AGENT_API_AUTH_URL_DEV_WEU as string,
-      clientId: env.AGENT_API_CLIENT_ID_DEV_WEU as string,
-      clientSecret: env.AGENT_API_CLIENT_SECRET_DEV_WEU as string,
+      apiBaseUrl: env[urlKey] as string,
+      authBaseUrl: region === "local" ? "" : (env[authKey] as string),
+      clientId: region === "local" ? "" : (env[idKey] as string),
+      clientSecret: region === "local" ? "" : (env[secretKey] as string),
       tenant: env.CORTI_TENANT_NAME || "base",
       a2aVersion: env.A2A_VERSION || "1.0",
+      region,
+      staticToken: region === "local" ? (env.AGENT_API_TOKEN_LOCAL as string) : undefined,
     });
   }
 
@@ -84,6 +103,8 @@ export class CortiClient {
   }
 
   private async fetchToken(): Promise<string> {
+    // local region uses a pre-shared static token, no OAuth.
+    if (this.cfg.staticToken) return this.cfg.staticToken;
     const url = `${this.cfg.authBaseUrl}/realms/${this.cfg.tenant}/protocol/openid-connect/token`;
     const body = new URLSearchParams({
       grant_type: "client_credentials",
