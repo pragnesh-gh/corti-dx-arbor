@@ -112,21 +112,38 @@ npm install
 npm run dev              # starts server (:8787) + web (:5174) together
 ```
 
-Open <http://localhost:5174>. Pick a scenario → **Advance a round** → at the
-HITL gate, enter a finding on the left → advance again → watch the tree branch
-and converge → **Build treatment plan**.
+Open <http://localhost:5174>. The home page explains what the agent does and
+what the clinician owns. Pick a scenario → the workspace opens on a single
+**Next action** rail: **Advance a round** → at the HITL gate the finding form
+appears inline → **Add result & advance** → watch the tree (or the ranked list)
+branch and converge → **Set working dx** → **Build treatment plan**. One linear
+path, no left-right ping-pong.
+
+## Recipes (in-app docs)
+
+The documentation lives inside the app at <http://localhost:5174/#/docs> —
+nine numbered recipes, each explaining one building block and linking to the
+live feature. The docs index also holds the building blocks, the minimal flow,
+the agent-vs-client responsibilities, and the design decisions. See
+[`docs/HANDOFF.md`](docs/HANDOFF.md) to pick up work in a fresh session, and
+[`docs/adr/0002-ui-revamp.md`](docs/adr/0002-ui-revamp.md) for the revamp
+decision.
 
 ## Example scenarios
 
-`web/src/scenarios.ts` ships four:
+`web/src/scenarios.ts` ships six — two short walk-throughs plus four richer ones:
 
-1. **Fever + migrating joint pain** (19yo male) — viral illness vs acute
+1. **Quick walk-through: cough + fever** (34yo male) — a short, clear-cut case
+   to run end-to-end in 1–2 rounds.
+2. **Quick walk-through: sore throat + fever** (9yo girl) — a second short case;
+   the engine proposes a rapid strep test.
+3. **Fever + migrating joint pain** (19yo male) — viral illness vs acute
    rheumatic fever vs reactive arthritis, with a post-strep track.
-2. **Fatigue + microcytic anemia** (58yo woman, West African descent, Lisbon) —
+4. **Fatigue + microcytic anemia** (58yo woman, West African descent, Lisbon) —
    iron deficiency vs hemoglobinopathy vs GI malignancy.
-3. **Headache + papilledema** (27yo woman, high BMI, on OCP) — idiopathic
+5. **Headache + papilledema** (27yo woman, high BMI, on OCP) — idiopathic
    intracranial hypertension vs cerebral venous sinus thrombosis (the zebra).
-4. **Chronic cough + weight loss** (returning traveler from East Africa) —
+6. **Chronic cough + weight loss** (returning traveler from East Africa) —
    post-viral vs tuberculosis vs lymphoma, split by imaging and sputum.
 
 ## Disclaimer

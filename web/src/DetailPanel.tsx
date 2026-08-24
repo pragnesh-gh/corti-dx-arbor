@@ -4,19 +4,57 @@
  */
 
 import type { Case, Finding, Hypothesis } from "./types.js";
+import * as api from "./api.js";
 
 interface Props {
   c: Case;
   selectedId: string | null;
+  onUpdated: (c: Case) => void;
+  busy: boolean;
+  setBusy: (b: boolean) => void;
 }
 
-export function DetailPanel({ c, selectedId }: Props) {
+export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy }: Props) {
   const h: Hypothesis | undefined = selectedId ? c.hypotheses[selectedId] : undefined;
   const findingsById: Record<string, Finding> = {};
   for (const f of c.findings) findingsById[f.id] = f;
 
+  // Discoverability for "Set working dx": when reasoning and there is a leading
+  // live hypothesis, surface the action where the user is looking at it. This
+  // was a buried ghost button in the chat actions; now it explains *when*.
+  const topLive = Object.values(c.hypotheses)
+    .filter((x) => x.status === "live")
+    .sort((a, b) => b.probability - a.probability)[0];
+  const canConverge = c.status === "reasoning" && !!topLive && !c.workingDiagnosis;
+
+  async function setWorkingDx() {
+    if (busy || !topLive) return;
+    setBusy(true);
+    try {
+      const next = await api.diagnose(c.id, { hypothesisId: topLive.id });
+      onUpdated(next);
+    } catch {
+      /* surfaced by NextAction in practice */
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="detail-panel">
+      {canConverge && (
+        <div className="converge-hint">
+          <div className="converge-hint-text">
+            <strong>Converged enough?</strong>
+            <p className="muted small">
+              The leading hypothesis is <em>{topLive!.name}</em> at {Math.round(topLive!.probability * 100)}%. If the differential is stable, set the working diagnosis.
+            </p>
+          </div>
+          <button onClick={setWorkingDx} disabled={busy}>
+            Set working dx
+          </button>
+        </div>
+      )}
       {c.workingDiagnosis && (
         <div className="verdict-card">
           <h3>Working diagnosis</h3>

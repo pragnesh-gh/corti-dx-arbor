@@ -1,50 +1,26 @@
 /**
- * EvidencePanel (left) — the case timeline of findings + a form to enter a
- * finding or test result, plus the presentation summary.
+ * EvidencePanel (left) — the case timeline: the presentation summary, the
+ * findings so far, the proposed tests, and the live differential bars.
+ *
+ * The "add finding / test result" form used to live here; it has moved to
+ * NextAction, co-located with the HITL gate that asks for it. This panel now
+ * shows the accumulated evidence so the clinician can read the case at a
+ * glance — the content the user liked, kept.
  */
 
-import { useState } from "react";
 import type { Case, Finding, Hypothesis } from "./types.js";
-import * as api from "./api.js";
 
 interface Props {
   c: Case;
-  onUpdated: (c: Case) => void;
-  busy: boolean;
-  setBusy: (b: boolean) => void;
 }
 
-export function EvidencePanel({ c, onUpdated, busy, setBusy }: Props) {
-  const [summary, setSummary] = useState("");
-  const [detail, setDetail] = useState("");
-  const [direction, setDirection] = useState<"supports" | "against" | "neutral">("neutral");
-  const [testId, setTestId] = useState<string>("");
-
+export function EvidencePanel({ c }: Props) {
   const liveHyps = Object.values(c.hypotheses)
     .filter((h) => h.status === "live" || h.status === "branched")
     .sort((a, b) => b.probability - a.probability);
 
-  async function submit() {
-    if (!summary.trim() || busy) return;
-    setBusy(true);
-    try {
-      const next = await api.addFinding(c.id, {
-        summary,
-        detail: detail || undefined,
-        direction,
-        source: "clinician",
-        testId: testId || undefined,
-      });
-      onUpdated(next);
-      setSummary("");
-      setDetail("");
-      setTestId("");
-    } catch (e) {
-      alert((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
+  const supports = c.findings.filter((f) => f.direction === "supports").length;
+  const against = c.findings.filter((f) => f.direction === "against").length;
 
   return (
     <div className="evidence-panel">
@@ -77,8 +53,13 @@ export function EvidencePanel({ c, onUpdated, busy, setBusy }: Props) {
         <h3>Findings</h3>
         <span className="count">{c.findings.length}</span>
       </div>
+      <div className="findings-summary muted small">
+        {c.findings.length === 0
+          ? "No findings yet."
+          : `${c.findings.length} finding${c.findings.length === 1 ? "" : "s"} · ${supports} support · ${against} against`}
+      </div>
       <div className="findings-list">
-        {c.findings.length === 0 && <p className="muted small">No findings yet.</p>}
+        {c.findings.length === 0 && <p className="muted small">Findings appear as the round runs and as you enter results.</p>}
         {c.findings
           .slice()
           .reverse()
@@ -97,46 +78,6 @@ export function EvidencePanel({ c, onUpdated, busy, setBusy }: Props) {
               </div>
             </div>
           ))}
-      </div>
-
-      <div className="panel-head">
-        <h3>Add finding / test result</h3>
-      </div>
-      <div className="finding-form">
-        <select value={testId} onChange={(e) => setTestId(e.target.value)}>
-          <option value="">(no specific test)</option>
-          {c.tests
-            .filter((t) => t.status === "proposed")
-            .map((t) => (
-              <option key={t.id} value={t.id}>
-                result for: {t.name}
-              </option>
-            ))}
-        </select>
-        <input
-          placeholder="Finding summary, e.g. “ASO titer 800 IU/mL”"
-          value={summary}
-          onChange={(e) => setSummary(e.target.value)}
-        />
-        <input
-          placeholder="Detail (optional), e.g. “reference <200”"
-          value={detail}
-          onChange={(e) => setDetail(e.target.value)}
-        />
-        <div className="dir-row">
-          <label className={direction === "supports" ? "on" : ""}>
-            <input type="radio" name="dir" checked={direction === "supports"} onChange={() => setDirection("supports")} /> supports
-          </label>
-          <label className={direction === "against" ? "on" : ""}>
-            <input type="radio" name="dir" checked={direction === "against"} onChange={() => setDirection("against")} /> against
-          </label>
-          <label className={direction === "neutral" ? "on" : ""}>
-            <input type="radio" name="dir" checked={direction === "neutral"} onChange={() => setDirection("neutral")} /> neutral
-          </label>
-        </div>
-        <button onClick={submit} disabled={busy || !summary.trim()}>
-          {busy ? "…" : "Add finding"}
-        </button>
       </div>
 
       {c.tests.length > 0 && (

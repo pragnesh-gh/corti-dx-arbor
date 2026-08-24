@@ -17,6 +17,50 @@ export interface Scenario {
 
 export const SCENARIOS: Scenario[] = [
   {
+    id: "scn-walkthrough-cap",
+    title: "Quick walk-through: cough + fever (1–2 rounds)",
+    blurb:
+      "A short, clear-cut case to run end-to-end: advance → enter one test result → diagnose → treat. Converges to a working diagnosis fast, with no pre-baked lab findings to fill in.",
+    presentation: {
+      chiefComplaint: "Fever and productive cough for 3 days",
+      history:
+        "Productive cough with yellow sputum, fever up to 39°C, and mild shortness of breath. Otherwise healthy, no chronic illness, no recent travel.",
+      observations: [
+        "T 39.1°C, HR 96, BP 120/78, RR 20, SpO₂ 95% on room air",
+        "Crackles at the right lower lung base on auscultation",
+      ],
+      demographics: {
+        ageYears: 34,
+        sex: "male",
+        raceEthnicity: "Northern European",
+        location: "Boston, USA",
+        comorbidities: [],
+      },
+    },
+  },
+  {
+    id: "scn-walkthrough-strep",
+    title: "Quick walk-through: sore throat + fever (1–2 rounds)",
+    blurb:
+      "A second short, clear-cut case to run end-to-end. The engine proposes a rapid strep test; enter the result and watch it converge in 1–2 rounds.",
+    presentation: {
+      chiefComplaint: "Sore throat and fever for 2 days",
+      history:
+        "Pain on swallowing, fever 38.6°C, no cough, no runny nose. Otherwise well. No known sick contacts reported.",
+      observations: [
+        "T 38.6°C, HR 88, BP 118/76",
+        "Exudate on tonsils, tender enlarged anterior cervical lymph nodes, no rash",
+      ],
+      demographics: {
+        ageYears: 9,
+        sex: "female",
+        raceEthnicity: "Northern European",
+        location: "Aarhus, Denmark",
+        comorbidities: [],
+      },
+    },
+  },
+  {
     id: "scn-fever-rash",
     title: "Fever + migrating joint pain (a young adult)",
     blurb:
