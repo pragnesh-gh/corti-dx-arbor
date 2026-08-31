@@ -93,18 +93,21 @@ function layout(c: Case): { nodes: LayoutNode[]; width: number; height: number }
 }
 
 function statusColor(h: Hypothesis): { fill: string; stroke: string; text: string; dim: boolean } {
-  if (h.id === "__root__") return { fill: "#1f2937", stroke: "#111827", text: "#f9fafb", dim: false };
+  // White-theme palette: soft tinted fills with dark text, so nodes read on a
+  // white canvas while still encoding status by hue. Strong stroke carries the
+  // color identity; the fill is a light tint of the same hue.
+  if (h.id === "__root__") return { fill: "#1f7a8c", stroke: "#155968", text: "#ffffff", dim: false };
   switch (h.status) {
     case "confirmed":
-      return { fill: "#059669", stroke: "#047857", text: "#ffffff", dim: false };
+      return { fill: "#e0f4ea", stroke: "#1f9d6b", text: "#14693f", dim: false };
     case "live":
-      return { fill: "#2563eb", stroke: "#1d4ed8", text: "#ffffff", dim: false };
+      return { fill: "#e3f0f2", stroke: "#1f7a8c", text: "#155968", dim: false };
     case "branched":
-      return { fill: "#7c3aed", stroke: "#6d28d9", text: "#ffffff", dim: false };
+      return { fill: "#efeaf8", stroke: "#7a5bd9", text: "#4a2da0", dim: false };
     case "ruled_out":
-      return { fill: "#6b7280", stroke: "#4b5563", text: "#e5e7eb", dim: true };
+      return { fill: "#f4f6f8", stroke: "#c2c8d0", text: "#9aa1ad", dim: true };
     default:
-      return { fill: "#374151", stroke: "#1f2937", text: "#f9fafb", dim: false };
+      return { fill: "#f4f6f8", stroke: "#d3d7de", text: "#5a6270", dim: false };
   }
 }
 
@@ -142,10 +145,10 @@ export function DecisionTree({ c, selectedId, onSelect }: Props) {
               <path
                 d={path}
                 fill="none"
-                stroke={dim ? "#9ca3af" : "#94a3b8"}
-                strokeWidth={dim ? 1.5 : 2.5}
+                stroke={dim ? "#c2c8d0" : "#8a93a0"}
+                strokeWidth={dim ? 1.5 : 2}
                 strokeDasharray={dim ? "4 4" : undefined}
-                opacity={dim ? 0.5 : 0.9}
+                opacity={dim ? 0.7 : 0.95}
               />
               {n.edgeLabel && (
                 <text
@@ -183,8 +186,8 @@ export function DecisionTree({ c, selectedId, onSelect }: Props) {
                 height={NODE_H}
                 rx={10}
                 fill={col.fill}
-                stroke={selected ? "#fde047" : isTop ? "#fbbf24" : col.stroke}
-                strokeWidth={selected ? 3 : isTop ? 2.5 : 1.5}
+                stroke={selected ? "#14181f" : isTop ? "#1f7a8c" : col.stroke}
+                strokeWidth={selected ? 2.5 : isTop ? 2 : 1.25}
               />
               <text x={14} y={24} fill={col.text} className="node-title">
                 {truncate(n.h.name, 26)}
@@ -217,10 +220,10 @@ export function DecisionTree({ c, selectedId, onSelect }: Props) {
       </svg>
       {/* Legend */}
       <div className="legend">
-        <span><i style={{ background: "#2563eb" }} /> live</span>
-        <span><i style={{ background: "#7c3aed" }} /> branched</span>
-        <span><i style={{ background: "#059669" }} /> working dx</span>
-        <span><i style={{ background: "#6b7280" }} /> ruled out (kept for trail)</span>
+        <span><i style={{ background: "#e3f0f2", border: "1.5px solid #1f7a8c" }} /> live</span>
+        <span><i style={{ background: "#efeaf8", border: "1.5px solid #7a5bd9" }} /> branched</span>
+        <span><i style={{ background: "#e0f4ea", border: "1.5px solid #1f9d6b" }} /> working dx</span>
+        <span><i style={{ background: "#f4f6f8", border: "1.5px solid #c2c8d0" }} /> ruled out (kept for trail)</span>
         <span>🦓 zebra</span>
       </div>
     </div>

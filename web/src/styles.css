@@ -1,55 +1,43 @@
-/* Arbor UI — light/dark theme tokens + layout for the three-pane DDx console. */
+/* Arbor UI — white-dominant theme. One accent (a calm teal-blue) carries
+ * interactivity; semantic status colors stay for clinical meaning. Locked to
+ * light: the reasoning tree's color encoding must read the same for every
+ * viewer, so we do not auto-switch on prefers-color-scheme. */
 
 :root {
-  --bg: #f6f7f9;
+  /* surfaces — white, with the faintest warm-grey for elevation */
+  --bg: #ffffff;
   --bg-elev: #ffffff;
-  --bg-elev-2: #fbfbfd;
-  --border: #e5e7eb;
-  --border-strong: #d1d5db;
-  --text: #111827;
-  --text-muted: #6b7280;
-  --text-faint: #9ca3af;
-  --accent: #2563eb;
-  --accent-soft: #dbeafe;
-  --live: #2563eb;
-  --branched: #7c3aed;
-  --confirmed: #059669;
-  --ruled: #6b7280;
-  --for: #059669;
-  --against: #dc2626;
-  --hitl: #f59e0b;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --radius: 10px;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-}
+  --bg-elev-2: #f7f8fa;
+  --bg-sunken: #f4f6f8;
+  --border: #e6e8ec;
+  --border-strong: #d3d7de;
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0b0f17;
-    --bg-elev: #131a26;
-    --bg-elev-2: #0f1620;
-    --border: #1f2937;
-    --border-strong: #374151;
-    --text: #e5e7eb;
-    --text-muted: #9ca3af;
-    --text-faint: #6b7280;
-    --accent: #60a5fa;
-    --accent-soft: #1e3a5f;
-    --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0b0f17;
-  --bg-elev: #131a26;
-  --bg-elev-2: #0f1620;
-  --border: #1f2937;
-  --border-strong: #374151;
-  --text: #e5e7eb;
-  --text-muted: #9ca3af;
-  --text-faint: #6b7280;
-  --accent: #60a5fa;
-  --accent-soft: #1e3a5f;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  /* text — near-black on white for contrast, graded greys for hierarchy */
+  --text: #14181f;
+  --text-muted: #5a6270;
+  --text-faint: #9aa1ad;
+
+  /* the single accent — a calm teal-blue. Used for actions, links, focus, live */
+  --accent: #1f7a8c;
+  --accent-strong: #155968;
+  --accent-soft: #e3f0f2;
+  --accent-ink: #fff; /* text on accent fills */
+
+  /* semantic status — kept, but tuned to sit on white */
+  --live: #1f7a8c;
+  --branched: #7a5bd9;
+  --confirmed: #1f9d6b;
+  --ruled: #9aa1ad;
+  --for: #1f9d6b;
+  --against: #d6453c;
+  --hitl: #e08a1a;
+
+  --shadow: 0 1px 2px rgba(20, 24, 31, 0.04), 0 1px 3px rgba(20, 24, 31, 0.05);
+  --shadow-lift: 0 4px 14px rgba(20, 24, 31, 0.08);
+  --radius: 12px;
+  --radius-sm: 8px;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -77,15 +65,16 @@ header h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01e
 
 /* buttons */
 button {
-  cursor: pointer; border: 1px solid var(--border-strong);
-  background: var(--accent); color: #fff; border-radius: 8px;
+  cursor: pointer; border: 1px solid var(--accent);
+  background: var(--accent); color: var(--accent-ink); border-radius: var(--radius-sm);
   padding: 7px 14px; font-size: 13px; font-weight: 600;
 }
-button:hover:not(:disabled) { filter: brightness(1.05); }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
+button:hover:not(:disabled) { background: var(--accent-strong); border-color: var(--accent-strong); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
 button.ghost {
   background: transparent; color: var(--text); border-color: var(--border-strong);
 }
+button.ghost:hover:not(:disabled) { background: var(--bg-elev-2); border-color: var(--text-faint); }
 
 /* scenarios */
 .scenarios { padding: 28px 40px; max-width: 1000px; margin: 0 auto; }
@@ -216,19 +205,15 @@ button.ghost {
 .chat-input { display: flex; gap: 8px; padding: 0 14px 12px; }
 .chat-input textarea { resize: vertical; }
 .hitl-banner {
-  margin: 6px 14px; padding: 10px 12px; background: #fef3c7; color: #78350f;
-  border: 1px solid #f59e0b; border-radius: 9px; font-size: 13px;
+  margin: 6px 14px; padding: 10px 12px; background: #fdf4e3; color: #7a4d08;
+  border: 1px solid var(--hitl); border-radius: var(--radius-sm); font-size: 13px;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .hitl-banner { background: #422006; color: #fde68a; border-color: #b45309; }
-}
-:root[data-theme="dark"] .hitl-banner { background: #422006; color: #fde68a; border-color: #b45309; }
 
 /* detail panel */
 .detail-panel { padding: 0 0 16px; flex: 1; overflow-y: auto; }
 .hypo-detail { margin: 0 12px; padding: 12px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); }
 .hypo-detail .prob-line { margin: 8px 0; font-size: 13px; }
-.zebra-tag { background: #fde68a; color: #78350f; padding: 1px 7px; border-radius: 999px; font-size: 11px; margin-left: 6px; }
+.zebra-tag { background: #fdf0d8; color: #8a5a14; padding: 1px 7px; border-radius: 999px; font-size: 11px; margin-left: 6px; }
 .baserate, .codes, .ev-block { margin-top: 10px; font-size: 13px; }
 .ev-block ul, .codes ul { margin: 4px 0 0; padding-left: 18px; }
 .ev-block li { margin: 3px 0; }
@@ -255,14 +240,14 @@ button.ghost {
 
 /* status chip */
 .status-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; font-weight: 700; }
-.status-chip.intake { background: #e0e7ff; color: #3730a3; }
-.status-chip.reasoning { background: var(--accent-soft); color: var(--accent); }
-.status-chip.converged { background: #d1fae5; color: #065f46; }
-.status-chip.treatment, .status-chip.closed { background: #ede9fe; color: #5b21b6; }
-.status-chip.live { background: var(--accent-soft); color: var(--accent); }
-.status-chip.branched { background: #ede9fe; color: #5b21b6; }
-.status-chip.confirmed { background: #d1fae5; color: #065f46; }
-.status-chip.ruled_out { background: #e5e7eb; color: #4b5563; text-decoration: line-through; }
+.status-chip.intake { background: #e3f0f2; color: var(--accent-strong); }
+.status-chip.reasoning { background: var(--accent-soft); color: var(--accent-strong); }
+.status-chip.converged { background: #e0f4ea; color: #14693f; }
+.status-chip.treatment, .status-chip.closed { background: #efeaf8; color: #5b3aa6; }
+.status-chip.live { background: var(--accent-soft); color: var(--accent-strong); }
+.status-chip.branched { background: #efeaf8; color: #5b3aa6; }
+.status-chip.confirmed { background: #e0f4ea; color: #14693f; }
+.status-chip.ruled_out { background: var(--bg-sunken); color: var(--text-faint); text-decoration: line-through; }
 
 .muted { color: var(--text-muted); }
 .small { font-size: 12px; }
@@ -415,9 +400,10 @@ button.ghost {
 .docs-blocks { margin: 0; padding-left: 20px; line-height: 1.7; font-size: 14px; }
 .docs-split { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .docs-split ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; }
-.docs-code {
-  background: #1e1e2e; color: #cdd6f4; padding: 14px 16px; border-radius: 8px;
-  font-size: 12.5px; line-height: 1.5; overflow-x: auto; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+.docs-code, .tut-code {
+  background: var(--bg-sunken); color: var(--text); padding: 14px 16px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px; line-height: 1.55; overflow-x: auto; font-family: ui-monospace, "SF Mono", Menlo, monospace;
   white-space: pre;
 }
 .docs-recipe-grid {
