@@ -17,6 +17,15 @@ export function DocsIndex() {
         recipe explains one building block and links to the live feature.
       </p>
 
+      <div className="docs-callout">
+        These recipes are also mirrored as <strong>markdown</strong> at{" "}
+        <code>docs/recipes/</code>, and the repo root has an{" "}
+        <code>AGENTS.md</code> entry point — so an LLM (or a teammate) can read
+        the docs without running the app. New here? Run the <strong>Guided
+        tour</strong> scenario on the home page for a scripted walk-through of
+        every feature.
+      </div>
+
       <h2 className="docs-h2">The building blocks</h2>
       <ol className="docs-blocks">
         <li>

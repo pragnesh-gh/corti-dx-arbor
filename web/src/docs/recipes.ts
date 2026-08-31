@@ -26,8 +26,8 @@ export const RECIPES: RecipeMeta[] = [
     navLabel: "Presentation",
     description:
       "How a Case begins from a Presentation: the chief complaint, history, observations, and demographics that seed the whole tree.",
-    demoLink: "#/",
-    demoLabel: "Pick a scenario on the home page to start a case",
+    demoLink: "#/tutorial",
+    demoLabel: "Run the Guided tour — a scripted walk-through from presentation to plan",
   },
   {
     slug: "round",
