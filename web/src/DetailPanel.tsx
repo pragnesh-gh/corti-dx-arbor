@@ -12,9 +12,16 @@ interface Props {
   onUpdated: (c: Case) => void;
   busy: boolean;
   setBusy: (b: boolean) => void;
+  /**
+   * Whether to show the live API actions (the "Set working dx" convergence
+   * button). Defaults true for the live workspace; the Tutorial passes false
+   * because the canned case has no backing API call — that button would error.
+   * Read-only detail (the bulk of the panel) is always shown.
+   */
+  interactive?: boolean;
 }
 
-export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy }: Props) {
+export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy, interactive = true }: Props) {
   const h: Hypothesis | undefined = selectedId ? c.hypotheses[selectedId] : undefined;
   const findingsById: Record<string, Finding> = {};
   for (const f of c.findings) findingsById[f.id] = f;
@@ -42,7 +49,7 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy }: Props) 
 
   return (
     <div className="detail-panel">
-      {canConverge && (
+      {interactive && canConverge && (
         <div className="converge-hint">
           <div className="converge-hint-text">
             <strong>Converged enough?</strong>

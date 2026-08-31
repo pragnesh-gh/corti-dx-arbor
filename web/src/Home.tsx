@@ -90,7 +90,7 @@ export function Home({ onStartScenario, onStartBlank, busy, onOpenDocs }: Props)
           {SCENARIOS.map((s) => (
             <button
               key={s.id}
-              className="scenario-card"
+              className={`scenario-card${s.tutorial ? " tutorial-card" : ""}`}
               onClick={() => onStartScenario(s)}
               disabled={busy}
             >

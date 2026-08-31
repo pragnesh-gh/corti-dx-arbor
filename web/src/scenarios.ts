@@ -13,27 +13,37 @@ export interface Scenario {
   title: string;
   blurb: string;
   presentation: Presentation;
+  /**
+   * When true, this card enters the guided tutorial (a scripted, canned
+   * walk-through) instead of starting a live case against the API. The
+   * tutorial's "Run this case for real" exit starts the named `liveScenarioId`.
+   */
+  tutorial?: boolean;
+  liveScenarioId?: string;
 }
 
 export const SCENARIOS: Scenario[] = [
   {
-    id: "scn-walkthrough-cap",
-    title: "Quick walk-through: cough + fever (1–2 rounds)",
+    id: "scn-tutorial",
+    title: "Guided tour — every feature in one case ★",
     blurb:
-      "A short, clear-cut case to run end-to-end: advance → enter one test result → diagnose → treat. Converges to a working diagnosis fast, with no pre-baked lab findings to fill in.",
+      "A scripted walk-through of the full run: the differential, horses vs zebras, the test gate, branching, evidence, the working diagnosis, and the treatment plan — with instant stepping and teaching cues. The best place to start.",
+    tutorial: true,
+    liveScenarioId: "scn-fever-rash",
     presentation: {
-      chiefComplaint: "Fever and productive cough for 3 days",
+      chiefComplaint: "Fever and migrating joint pain for 8 days",
       history:
-        "Productive cough with yellow sputum, fever up to 39°C, and mild shortness of breath. Otherwise healthy, no chronic illness, no recent travel.",
+        "Started with a sore throat 2 weeks ago, now large joints (knees, ankles) ache and migrate over days. Fever 38.5–39°C. General malaise. No trauma. No prior similar episodes.",
       observations: [
-        "T 39.1°C, HR 96, BP 120/78, RR 20, SpO₂ 95% on room air",
-        "Crackles at the right lower lung base on auscultation",
+        "T 38.7°C, HR 102, BP 118/74, RR 18",
+        "Swollen tender left knee, right ankle — warm but not erythematous",
+        "No mucosal lesions, no tick bite recalled",
       ],
       demographics: {
-        ageYears: 34,
+        ageYears: 19,
         sex: "male",
         raceEthnicity: "Northern European",
-        location: "Boston, USA",
+        location: "rural Minnesota, USA",
         comorbidities: [],
       },
     },

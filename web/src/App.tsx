@@ -22,15 +22,17 @@ import { NextAction } from "./NextAction.js";
 import { RankedDifferential } from "./RankedDifferential.js";
 import { Home } from "./Home.js";
 import { Docs } from "./docs/Docs.js";
-import { SCENARIOS, type Scenario } from "./scenarios.js";
+import { Tutorial } from "./Tutorial.js";
+import { SCENARIOS, type Scenario, findScenario } from "./scenarios.js";
 import * as api from "./api.js";
 import type { Case } from "./types.js";
 
-type View = "home" | "workspace" | "docs";
+type View = "home" | "workspace" | "docs" | "tutorial";
 
 function viewFromHash(): View {
   const h = window.location.hash.replace(/^#\/?/, "");
   if (h.startsWith("docs")) return "docs";
+  if (h.startsWith("tutorial")) return "tutorial";
   return "home";
 }
 
@@ -56,7 +58,14 @@ export function App() {
 
   function go(v: View) {
     setView(v);
-    const hash = v === "docs" ? "#/docs" : v === "workspace" ? "#/workspace" : "#/";
+    const hash =
+      v === "docs"
+        ? "#/docs"
+        : v === "workspace"
+          ? "#/workspace"
+          : v === "tutorial"
+            ? "#/tutorial"
+            : "#/";
     if (window.location.hash !== hash) window.history.pushState(null, "", hash);
   }
 
@@ -76,7 +85,17 @@ export function App() {
     };
   }, [c?.id]);
 
-  async function startScenario(s: Scenario) {
+  // A tutorial scenario enters the scripted walk-through (no live API);
+  // a normal scenario starts a live case against the API.
+  function startScenario(s: Scenario) {
+    if (s.tutorial) {
+      go("tutorial");
+      return;
+    }
+    startScenarioLive(s);
+  }
+
+  async function startScenarioLive(s: Scenario) {
     setBusy(true);
     try {
       const created = await api.createCase(s.presentation, s.title);
@@ -88,6 +107,14 @@ export function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  // "Run this case for real" — exit the tutorial into a live run of the
+  // underlying scenario the tour was based on.
+  function exitTutorialToLive() {
+    const tut = SCENARIOS.find((s) => s.tutorial);
+    const live = tut?.liveScenarioId ? findScenario(tut.liveScenarioId) : undefined;
+    startScenarioLive(live ?? { ...tut!, tutorial: false });
   }
 
   async function startBlank() {
@@ -127,6 +154,14 @@ export function App() {
           <button className="ghost" onClick={() => go("docs")}>
             Recipes
           </button>
+          {view === "tutorial" && (
+            <>
+              <span className="case-title">Guided tour</span>
+              <button className="ghost" onClick={newCase}>
+                Leave tour
+              </button>
+            </>
+          )}
           {c && view === "workspace" && (
             <>
               <span className="case-title">{c.title}</span>
@@ -140,6 +175,8 @@ export function App() {
 
       {view === "docs" ? (
         <Docs />
+      ) : view === "tutorial" ? (
+        <Tutorial onExitToLive={exitTutorialToLive} onExitToHome={() => go("home")} />
       ) : view === "workspace" && c ? (
         <div className="workspace">
           <aside className="pane left">

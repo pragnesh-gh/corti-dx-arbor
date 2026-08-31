@@ -453,6 +453,24 @@ button.ghost:hover:not(:disabled) { background: var(--bg-elev-2); border-color: 
 /* findings summary line (EvidencePanel) */
 .findings-summary { padding: 0 12px 6px; }
 
+/* ---- Tutorial ---- */
+/* The home card for the guided tour — accented to read as the entry point. */
+.scenario-card.tutorial-card {
+  border-color: var(--accent);
+  box-shadow: var(--shadow), 0 0 0 1px var(--accent-soft);
+  background: linear-gradient(180deg, var(--accent-soft), var(--bg-elev));
+}
+.scenario-card.tutorial-card h3 { color: var(--accent-strong); }
+
+/* The teaching rail replaces the live NextAction in tutorial mode. */
+.tutorial-rail { padding: 12px 14px 10px; }
+.tut-card { background: var(--accent-soft); }
+.tut-cue {
+  margin-top: 6px; font-size: 12.5px; color: var(--accent-strong);
+  font-style: italic; line-height: 1.4;
+}
+.tut-exit-hint { margin-top: 10px; line-height: 1.4; }
+
 @media (max-width: 1100px) {
   .home-split, .home-answers { grid-template-columns: 1fr; }
   .docs-layout { grid-template-columns: 1fr; height: auto; }
