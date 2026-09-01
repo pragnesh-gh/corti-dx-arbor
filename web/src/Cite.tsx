@@ -23,8 +23,10 @@ interface CitedProps {
   onCite?: (index: number) => void;
 }
 
-/** Prose with its inline citation markers rendered as source chips. */
-export function Cited({ text, sources, onCite }: CitedProps) {
+/** Prose with its inline citation markers rendered as source chips.
+ *  `sources` defaults to `[]` so a case carrying no pool renders plain text
+ *  instead of throwing on `sources.map`. */
+export function Cited({ text, sources = [], onCite }: CitedProps) {
   if (!text) return null;
   const byIndex = new Map(sources.map((s) => [s.index, s]));
 
