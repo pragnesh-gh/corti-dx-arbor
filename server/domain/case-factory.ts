@@ -18,6 +18,7 @@ export function createCase(presentation: Presentation, title?: string): Case {
     hypotheses: {},
     rootHypothesisIds: [],
     findings: [],
+    sources: [],
     tests: [],
     events: [],
     round: 0,

@@ -7,8 +7,8 @@
  */
 
 import type { CortiClient } from "../corti/client.js";
-import type { A2AMessage } from "../corti/types.js";
 import { appendEvent } from "./case-store.js";
+import { extractJson, textOf } from "./parse.js";
 import { withRetry } from "./engine.js";
 import type { Case, TreatmentPlan } from "./types.js";
 
@@ -21,53 +21,6 @@ interface RawPlan {
   };
 }
 
-function textOf(msg: A2AMessage | undefined): string {
-  if (!msg) return "";
-  return (msg.parts || [])
-    .map((p) => p.text || "")
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-}
-
-function extractJson(text: string): unknown | null {
-  if (!text) return null;
-  let t = text.trim();
-  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence && fence[1]) t = fence[1].trim();
-  try {
-    return JSON.parse(t);
-  } catch {
-    /* fall through */
-  }
-  const start = t.indexOf("{");
-  if (start === -1) return null;
-  let depth = 0;
-  let inStr = false;
-  let esc = false;
-  for (let i = start; i < t.length; i++) {
-    const ch = t[i];
-    if (inStr) {
-      if (esc) esc = false;
-      else if (ch === "\\") esc = true;
-      else if (ch === '"') inStr = false;
-      continue;
-    }
-    if (ch === '"') inStr = true;
-    else if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) {
-        try {
-          return JSON.parse(t.slice(start, i + 1));
-        } catch {
-          return null;
-        }
-      }
-    }
-  }
-  return null;
-}
 
 export async function buildTreatmentPlan(
   client: CortiClient,

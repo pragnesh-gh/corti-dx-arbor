@@ -2,21 +2,40 @@
  * EvidencePanel (left) — the case record: the presentation summary, the
  * findings so far, and the proposed tests.
  *
- * The "add finding / test result" form lives in NextAction, co-located with
- * the HITL gate that asks for it. The ranked differential is *not* repeated
- * here: the reasoning tree in the centre carries every hypothesis and its
- * probability, and the Tree/List toggle gives the same data as a ranked list.
+ * The "add finding / test result" form used to live here; it has moved to
+ * NextAction, co-located with the HITL gate that asks for it. This panel now
+ * shows the accumulated evidence so the clinician can read the case at a
+ * glance — the content the user liked, kept.
+ *
+ * The flat findings list has been replaced by FindingsView (grouped by the
+ * hypothesis each finding moves), and the case bibliography now sits at the
+ * foot of the panel as the target of every inline citation chip.
  */
 
-import type { Case, Finding } from "./types.js";
+import { useState } from "react";
+import { Cited, SourceList } from "./Cite.js";
+import { FindingsView } from "./FindingsView.js";
+import type { Case, Hypothesis } from "./types.js";
 
 interface Props {
   c: Case;
+  onSelectHypothesis?: (id: string) => void;
 }
 
-export function EvidencePanel({ c }: Props) {
-  const supports = c.findings.filter((f) => f.direction === "supports").length;
-  const against = c.findings.filter((f) => f.direction === "against").length;
+export function EvidencePanel({ c, onSelectHypothesis }: Props) {
+  // Which bibliography entry to flash when a citation chip is clicked.
+  const [highlight, setHighlight] = useState<number | null>(null);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+
+  function focusSource(index: number) {
+    setSourcesOpen(true);
+    setHighlight(index);
+    // Let the list mount before scrolling to the entry.
+    requestAnimationFrame(() => {
+      document.getElementById(`source-${index}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+    window.setTimeout(() => setHighlight((h) => (h === index ? null : h)), 2000);
+  }
 
   return (
     <div className="evidence-panel">
@@ -45,36 +64,7 @@ export function EvidencePanel({ c }: Props) {
         ) : null}
       </div>
 
-      <div className="panel-head">
-        <h3>Findings</h3>
-        <span className="count">{c.findings.length}</span>
-      </div>
-      <div className="findings-summary muted small">
-        {c.findings.length === 0
-          ? "No findings yet."
-          : `${c.findings.length} finding${c.findings.length === 1 ? "" : "s"} · ${supports} support · ${against} against`}
-      </div>
-      <div className="findings-list">
-        {c.findings.length === 0 && <p className="muted small">Findings appear as the round runs and as you enter results.</p>}
-        {c.findings
-          .slice()
-          .reverse()
-          .map((f: Finding) => (
-            <div key={f.id} className={`finding ${f.direction}`}>
-              <div className="finding-dir">{dirIcon(f.direction)}</div>
-              <div>
-                <div className="finding-summary">{f.summary}</div>
-                {f.detail && <div className="muted small">{f.detail}</div>}
-                {f.citation && (
-                  <a className="cite" href={f.citation.url} target="_blank" rel="noreferrer">
-                    {f.citation.label}
-                  </a>
-                )}
-                <div className="finding-meta">{f.source}</div>
-              </div>
-            </div>
-          ))}
-      </div>
+      <FindingsView c={c} onCite={focusSource} onSelectHypothesis={onSelectHypothesis} />
 
       {c.tests.length > 0 && (
         <>
@@ -89,7 +79,9 @@ export function EvidencePanel({ c }: Props) {
               <div key={t.id} className={`test ${t.status}`}>
                 <div className="test-main">
                   <div className="test-name">{t.name}</div>
-                  <div className="muted small">{t.rationale}</div>
+                  <div className="muted small">
+                    <Cited text={t.rationale} sources={c.sources} onCite={focusSource} />
+                  </div>
                 </div>
                 <span className={`test-status ${t.status}`}>{t.status}</span>
               </div>
@@ -98,10 +90,29 @@ export function EvidencePanel({ c }: Props) {
         </>
       )}
 
+      {c.sources.length > 0 && (
+        <>
+          <div className="panel-head">
+            <button
+              className="group-toggle"
+              onClick={() => setSourcesOpen((o) => !o)}
+              aria-expanded={sourcesOpen}
+            >
+              <span className="caret">{sourcesOpen ? "▾" : "▸"}</span>
+              <h3>Sources</h3>
+            </button>
+            <span className="count">{c.sources.length}</span>
+          </div>
+          {sourcesOpen ? (
+            <SourceList sources={c.sources} highlight={highlight} />
+          ) : (
+            <p className="muted small">
+              {c.sources.length} source{c.sources.length === 1 ? "" : "s"} gathered by the evidence
+              pass. Every numbered marker above points here.
+            </p>
+          )}
+        </>
+      )}
     </div>
   );
-}
-
-function dirIcon(d: Finding["direction"]): string {
-  return d === "supports" ? "↑" : d === "against" ? "↓" : "•";
 }

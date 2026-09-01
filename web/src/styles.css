@@ -728,3 +728,88 @@ button.ghost:hover:not(:disabled) { background: var(--surface-container-low); bo
   .docs-sidebar { flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid var(--outline-variant); }
   .docs-nav { flex-direction: row; flex-wrap: wrap; }
 }
+
+
+/* ---- inline citations (ADR 0003) ---------------------------------------- */
+
+/* A citation chip is deliberately quiet: prose should read as prose, with the
+   provenance available rather than shouted. */
+.cite-group { font-size: 10px; line-height: 1; white-space: nowrap; }
+.cite-sep { color: var(--text-faint); margin: 0 1px; }
+.cite-chip {
+  display: inline-block; min-width: 13px; padding: 0 3px; margin-left: 1px;
+  background: var(--accent-soft); color: var(--accent-strong);
+  border: 1px solid transparent; border-radius: 4px;
+  font-size: 10px; font-weight: 600; line-height: 15px; text-align: center;
+  text-decoration: none; cursor: pointer; vertical-align: super;
+  font-family: inherit;
+}
+.cite-chip:hover, .cite-chip:focus-visible {
+  background: var(--accent); color: var(--accent-ink); border-color: var(--accent-strong);
+}
+
+/* the case bibliography */
+.source-list { list-style: none; margin: 0; padding: 0 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+.source-item {
+  display: flex; gap: 8px; padding: 8px 10px; font-size: 12px;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px;
+  transition: background 240ms ease, border-color 240ms ease;
+}
+.source-item.highlight { background: var(--accent-soft); border-color: var(--accent); }
+.source-index {
+  flex: 0 0 auto; min-width: 18px; height: 18px; border-radius: 4px;
+  background: var(--bg-sunken); color: var(--text-muted);
+  font-size: 10px; font-weight: 700; line-height: 18px; text-align: center;
+}
+.source-title { font-weight: 600; color: var(--text); text-decoration: none; }
+a.source-title:hover { color: var(--accent); text-decoration: underline; }
+.source-meta { text-transform: uppercase; letter-spacing: 0.03em; font-size: 10px; }
+
+/* ---- findings, grouped by hypothesis ------------------------------------ */
+
+.seg-toggle { display: flex; gap: 2px; padding: 2px; background: var(--bg-sunken); border-radius: 6px; }
+.seg-toggle button {
+  padding: 3px 8px; font-size: 11px; font-weight: 600; border: 0; border-radius: 4px;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+}
+.seg-toggle button.on { background: var(--bg-elev); color: var(--text); box-shadow: var(--shadow); }
+
+.finding-groups { padding: 0 12px; display: flex; flex-direction: column; gap: 8px; }
+.finding-group { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg-elev); }
+.finding-group-head {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  background: var(--bg-elev-2); border-bottom: 1px solid transparent;
+}
+.finding-group.open .finding-group-head { border-bottom-color: var(--border); }
+.group-toggle {
+  display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0;
+  padding: 0; border: 0; background: none; cursor: pointer; text-align: left;
+  font: inherit; color: var(--text);
+}
+.group-toggle .caret { color: var(--text-faint); font-size: 10px; }
+.group-title { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-toggle .group-title:hover { color: var(--accent); text-decoration: underline; }
+.group-tally { flex: 0 0 auto; font-size: 11px; }
+.group-tally .supports { color: var(--for); font-weight: 600; }
+.group-tally .against { color: var(--against); font-weight: 600; }
+.group-badge {
+  flex: 0 0 auto; padding: 1px 7px; border-radius: 999px;
+  background: var(--bg-sunken); color: var(--text-muted);
+  font-size: 11px; font-weight: 600;
+}
+.group-badge.live { background: var(--accent-soft); color: var(--accent-strong); }
+.group-badge.confirmed { background: #e4f6ee; color: var(--confirmed); }
+.group-badge.ruled_out { background: var(--bg-sunken); color: var(--ruled); }
+
+.finding-group .findings-list { padding: 8px; }
+.finding-group .finding { border: 0; background: transparent; padding: 5px 4px; }
+.finding-group .finding + .finding { border-top: 1px solid var(--border); }
+
+.finding-body { min-width: 0; flex: 1 1 auto; }
+.finding-summary {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.finding.open .finding-summary { white-space: normal; }
+.finding-summary.expandable { cursor: pointer; }
+.finding-summary.expandable:hover { color: var(--accent-strong); }
+.finding-expand { margin-top: 4px; display: flex; flex-direction: column; gap: 2px; }

@@ -136,6 +136,9 @@ const baseCase = {
   events: [],
   round: 0,
   awaitingHitl: false,
+  // The canned tour predates the grounded-citation pass; it carries no source
+  // pool, so <Cited> renders its text plainly with no markers.
+  sources: [],
   createdAt: "",
   updatedAt: "",
 };

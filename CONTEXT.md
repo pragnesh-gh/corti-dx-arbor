@@ -34,8 +34,21 @@ the design is grilled.
 ## Evidence & tests
 
 - **Finding**: an observation or test result that changes the probability of one
-  or more Hypotheses. Findings are dated and attributed to a source (clinician,
-  lab, literature).
+  or more Hypotheses. Findings are dated and attributed to an origin (clinician,
+  lab, literature). A Finding is *the claim*; the artifact backing it is a
+  Source.
+- **Source**: a citable artifact — a paper, a trial registration, a drug
+  monograph, a guideline, a calculator run. Sources live in one deduplicated,
+  append-only pool per Case, so the same paper is one Source no matter how many
+  times it is invoked. Identity is the first of DOI, PMID, NCT id, normalized
+  URL, normalized title.
+- **Citation**: one *use* of a Source at one point in the text — the footnote
+  marker, not the bibliography entry. Rendered inline as a numbered marker that
+  indexes the Case's Source pool. A claim with no Source carries no marker: an
+  uncited assertion is honest, a marker that resolves to nothing is not.
+- **Evidence pass**: the parallel fan-out to the literature experts that runs
+  alongside each Round. What it returns becomes Findings in the Round it ran,
+  and the citable Source pool for the *next* Round.
 - **Test**: an action that yields a Finding. Tests are chosen for their power to
   *split* the remaining Differential — i.e. their information gain.
 - **Likelihood reasoning**: Bayesian-style updating — prevalence is the prior,
@@ -70,8 +83,9 @@ the design is grilled.
 - **Hypothesis engine**: the Corti agent that generates and updates the
   Differential from the Presentation + Findings. The "brain."
 - **Evidence experts**: the Corti registry specialists (`pubmed-expert`,
-  `clinical-trials-expert`, `medical-calculator-expert`, `coding-expert`,
-  `web-search-expert`) fanned out in parallel to ground each Hypothesis in
-  literature, statistics, and codes.
+  `clinical-trials-expert`, `medical-calculator-expert`, `drugbank-expert`,
+  `coding-expert`, `web-search-expert`) fanned out in parallel to ground each
+  Hypothesis in literature, statistics, and codes. The Evidence pass is what
+  drives them; a Source that no expert returned does not exist.
 - **Memory**: the Corti `memory-expert` storing per-case traces and per-condition
   base rates so the engine sharpens over time.
