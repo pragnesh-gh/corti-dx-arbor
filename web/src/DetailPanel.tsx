@@ -1,8 +1,14 @@
 /**
  * DetailPanel (right) — drill into one hypothesis (evidence trail, codes,
  * base-rate, discriminating tests) and show the verdict + treatment plan.
+ *
+ * Every claim-bearing surface here renders through <Cited>, so the base-rate
+ * prior, the illness script, and each step of the reasoning trail carry the
+ * markers of the sources behind them. A step with no markers has no grounded
+ * source — which is information, not an omission.
  */
 
+import { Cited, SourceChips } from "./Cite.js";
 import type { Case, Finding, Hypothesis } from "./types.js";
 import * as api from "./api.js";
 
@@ -64,7 +70,9 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy }: Props) 
             <strong>Reasoning trail</strong>
             <ol>
               {c.workingDiagnosis.reasoningTrail.map((t, i) => (
-                <li key={i}>{t}</li>
+                <li key={i}>
+                  <Cited text={t} sources={c.sources} />
+                </li>
               ))}
             </ol>
           </div>
@@ -74,13 +82,19 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy }: Props) 
       {c.treatmentPlan && (
         <div className="treatment-card">
           <h3>Treatment plan</h3>
-          <p>{c.treatmentPlan.summary}</p>
+          <p>
+            <Cited text={c.treatmentPlan.summary} sources={c.sources} />
+          </p>
           {c.treatmentPlan.steps.length > 0 && (
             <ol className="steps">
               {c.treatmentPlan.steps.map((s, i) => (
                 <li key={i}>
                   <div className="step-title">{s.title}</div>
-                  {s.detail && <div className="muted small">{s.detail}</div>}
+                  {s.detail && (
+                    <div className="muted small">
+                      <Cited text={s.detail} sources={c.sources} />
+                    </div>
+                  )}
                   {s.citation && (
                     <a className="cite" href={s.citation.url} target="_blank" rel="noreferrer">
                       {s.citation.label}
@@ -119,7 +133,11 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy }: Props) 
             <h3>{h.name}</h3>
             <span className={`status-chip ${h.status}`}>{h.status}</span>
           </div>
-          {h.description && <p>{h.description}</p>}
+          {h.description && (
+            <p>
+              <Cited text={h.description} sources={c.sources} />
+            </p>
+          )}
           <div className="prob-line">
             probability <b>{(h.probability * 100).toFixed(0)}%</b>
             {h.isZebra && <span className="zebra-tag">🦓 zebra</span>}
@@ -127,7 +145,9 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy }: Props) 
           {h.baseRateNote && (
             <div className="baserate">
               <strong>Base-rate prior</strong>
-              <p className="muted small">{h.baseRateNote}</p>
+              <p className="muted small">
+                <Cited text={h.baseRateNote} sources={c.sources} />
+              </p>
             </div>
           )}
           {h.codes?.length ? (
@@ -148,7 +168,11 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy }: Props) 
               <ul>
                 {h.evidenceFor.map((e, i) => (
                   <li key={i} className="supports">
-                    {findingsById[e.findingId]?.summary || e.weight}
+                    <Cited
+                      text={findingsById[e.findingId]?.summary || e.weight}
+                      sources={c.sources}
+                    />
+                    <SourceChips ids={findingsById[e.findingId]?.sourceIds} sources={c.sources} />
                   </li>
                 ))}
               </ul>
@@ -160,7 +184,11 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy }: Props) 
               <ul>
                 {h.evidenceAgainst.map((e, i) => (
                   <li key={i} className="against">
-                    {findingsById[e.findingId]?.summary || e.weight}
+                    <Cited
+                      text={findingsById[e.findingId]?.summary || e.weight}
+                      sources={c.sources}
+                    />
+                    <SourceChips ids={findingsById[e.findingId]?.sourceIds} sources={c.sources} />
                   </li>
                 ))}
               </ul>
@@ -172,7 +200,10 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy }: Props) 
               <ul>
                 {h.discriminatingTests.map((t, i) => (
                   <li key={i}>
-                    {t.name} <span className="muted small">— {t.rationale}</span>
+                    {t.name}{" "}
+                    <span className="muted small">
+                      — <Cited text={t.rationale} sources={c.sources} />
+                    </span>
                   </li>
                 ))}
               </ul>

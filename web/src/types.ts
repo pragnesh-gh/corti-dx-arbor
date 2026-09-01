@@ -41,6 +41,31 @@ export interface Hypothesis {
   updatedAt: string;
 }
 
+export type SourceType =
+  | "paper"
+  | "trial"
+  | "guideline"
+  | "drug"
+  | "code"
+  | "calculator"
+  | "web"
+  | "other";
+
+/**
+ * A citable artifact. `index` is the number rendered in inline markers and is
+ * stable for the life of the case — the pool is append-only.
+ */
+export interface Source {
+  id: string;
+  index: number;
+  title: string;
+  url?: string;
+  identifier?: string;
+  type: SourceType;
+  note?: string;
+  addedRound: number;
+}
+
 export interface Finding {
   id: string;
   summary: string;
@@ -48,7 +73,10 @@ export interface Finding {
   source: string;
   direction: "supports" | "against" | "neutral";
   hypothesisIds: string[];
+  /** @deprecated superseded by `sourceIds` + the case Source pool. */
   citation?: { label: string; url?: string };
+  /** Indices into `Case.sources` backing this finding. */
+  sourceIds?: number[];
   createdAt: string;
 }
 
@@ -103,6 +131,8 @@ export interface Case {
   hypotheses: Record<string, Hypothesis>;
   rootHypothesisIds: string[];
   findings: Finding[];
+  /** Append-only, deduplicated citable source pool; index === marker number. */
+  sources: Source[];
   tests: TestProposal[];
   events: CaseEvent[];
   workingDiagnosis?: WorkingDiagnosis;

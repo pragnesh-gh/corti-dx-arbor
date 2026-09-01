@@ -151,7 +151,7 @@ export function App() {
               onNewCase={newCase}
             />
             <div className="na-divider" />
-            <EvidencePanel c={c} />
+            <EvidencePanel c={c} onSelectHypothesis={setSelectedId} />
           </aside>
           <main className="pane center">
             <div className="center-head">

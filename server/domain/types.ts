@@ -82,6 +82,38 @@ export interface EvidenceRef {
   weight: string;
 }
 
+// ---- Sources & citations --------------------------------------------------
+
+export type SourceType =
+  | "paper"
+  | "trial"
+  | "guideline"
+  | "drug"
+  | "code"
+  | "calculator"
+  | "web"
+  | "other";
+
+/**
+ * A citable artifact. Sources live in one append-only, deduplicated pool per
+ * Case; `index` IS the inline marker number and must never change. Prose across
+ * the case carries `[3]`-style markers that index into this pool.
+ */
+export interface Source {
+  id: string;
+  /** 1-based position in the case pool — the number rendered in prose. */
+  index: number;
+  title: string;
+  url?: string;
+  /** DOI / PMID / NCT id where the expert returned one. */
+  identifier?: string;
+  type: SourceType;
+  /** One line on why this source bears on the case. */
+  note?: string;
+  /** The round whose evidence pass first surfaced it. */
+  addedRound: number;
+}
+
 // ---- Findings & tests -----------------------------------------------------
 
 export type FindingSource =
@@ -104,8 +136,14 @@ export interface Finding {
   direction: FindingDirection;
   /** Which hypothesis ids this finding bears on. */
   hypothesisIds: string[];
-  /** Citation link if literature/web. */
+  /**
+   * Citation link if literature/web.
+   * @deprecated Superseded by `sourceIds` + the case Source pool; retained so
+   * cases persisted before ADR 0003 still render.
+   */
   citation?: { label: string; url?: string };
+  /** Indices into `Case.sources` backing this finding. */
+  sourceIds?: number[];
   createdAt: string;
 }
 
@@ -183,6 +221,12 @@ export interface Case {
   /** Root-level hypothesis ids (the top differential). */
   rootHypothesisIds: string[];
   findings: Finding[];
+  /**
+   * The case's citable Source pool — append-only, deduplicated. A Source's
+   * position here is its inline marker number, so entries are never sorted,
+   * compacted, or removed.
+   */
+  sources: Source[];
   tests: TestProposal[];
   events: CaseEvent[];
   workingDiagnosis?: WorkingDiagnosis;
@@ -212,6 +256,8 @@ export interface EngineRoundResult {
   hypotheses: Hypothesis[];
   /** Findings produced this round (from experts / clinician). */
   findings: Finding[];
+  /** Sources newly added to the case pool this round. */
+  sources: Source[];
   /** The engine's free-text narration for the chat. */
   message: string;
   /** What the engine wants to do next. */

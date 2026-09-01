@@ -12,17 +12,25 @@
  */
 
 import type { CortiClient } from "../corti/client.js";
-import type { A2AMessage } from "../corti/types.js";
 import {
   AGENT_NAMES,
 } from "./agent-definitions.js";
 import { appendEvent, newId } from "./case-store.js";
+import { extractJson, textOf } from "./parse.js";
+import {
+  citedIndices,
+  mergeSources,
+  renderSourcePool,
+  rewriteMarkers,
+  type RawSource,
+} from "./sources.js";
 import type {
   Case,
   EngineDecision,
   EngineRoundResult,
   Finding,
   Hypothesis,
+  Source,
   TestProposal,
 } from "./types.js";
 
@@ -46,6 +54,8 @@ interface EngineRawHypothesis {
 
 interface EngineRawResponse {
   hypotheses: EngineRawHypothesis[];
+  /** Sources the engine newly introduces this round (ref "N1", "N2", ...). */
+  sources?: RawSource[];
   /** Findings produced this round (free text + direction). */
   findings?: {
     summary: string;
@@ -53,6 +63,8 @@ interface EngineRawResponse {
     direction?: "supports" | "against" | "neutral";
     hypothesisNames?: string[];
     citation?: { label: string; url?: string };
+    /** Refs into the pool / this response's sources, e.g. ["S1","N2"]. */
+    sourceRefs?: string[];
     source?: string;
   }[];
   /** Free-text narration for the clinician chat. */
@@ -64,58 +76,6 @@ interface EngineRawResponse {
 }
 
 // ---- Helpers --------------------------------------------------------------
-
-function textOf(msg: A2AMessage | undefined): string {
-  if (!msg) return "";
-  return (msg.parts || [])
-    .map((p) => p.text || "")
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-}
-
-/** Extract the first parseable JSON object from an LLM text blob. */
-function extractJson(text: string): unknown | null {
-  if (!text) return null;
-  // Strip markdown code fences if present.
-  let t = text.trim();
-  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence && fence[1]) t = fence[1].trim();
-  try {
-    return JSON.parse(t);
-  } catch {
-    // fall through to brace scan
-  }
-  // Find the first balanced { ... } object.
-  const start = t.indexOf("{");
-  if (start === -1) return null;
-  let depth = 0;
-  let inStr = false;
-  let esc = false;
-  for (let i = start; i < t.length; i++) {
-    const ch = t[i];
-    if (inStr) {
-      if (esc) esc = false;
-      else if (ch === "\\") esc = true;
-      else if (ch === '"') inStr = false;
-      continue;
-    }
-    if (ch === '"') inStr = true;
-    else if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) {
-        const slice = t.slice(start, i + 1);
-        try {
-          return JSON.parse(slice);
-        } catch {
-          return null;
-        }
-      }
-    }
-  }
-  return null;
-}
 
 /**
  * Retry a transient-prone Corti call. The platform sometimes resets the
@@ -204,8 +164,22 @@ ${renderCurrentDifferential(c)}
 FINDINGS SO FAR
 ${renderFindings(c)}
 
+SOURCES AVAILABLE TO CITE
+${renderSourcePool(c.sources)}
+
+CITATION RULES
+- Cite a source available above by writing its ref inline in the prose, e.g.
+  "prevalence rises sharply after 60 [S2]". Multiple refs: [S1, S3].
+- Citable prose: each hypothesis "description" and "baseRateNote", each
+  discriminating test "rationale", and each finding "summary"/"detail".
+- If you introduce a source of your own, you MUST declare it in "sources" with a
+  ref of the form "N1", "N2", ... and cite it as [N1]. Never cite a ref you have
+  not declared: unresolvable markers are stripped before the clinician sees them.
+- NEVER invent a DOI, PMID, or URL. An uncited claim is acceptable; a fabricated
+  citation is not. If nothing above supports a claim, simply make it uncited.
+
 TASK
-Update the differential. Emit the FULL set of live hypotheses with updated probabilities (hypotheses that are now ruled out should be omitted from "hypotheses" but named in rulesOut). Branch (set parent) when a finding splits a hypothesis. Return ONLY the JSON object matching the schema: { hypotheses:[{name, description?, codes?, probability(0-100), isZebra?, baseRateNote?, parent?, rulesOut?:[name], discriminatingTests?:[{name, rationale, discriminatesBetween?:[name]}]}], findings?:[{summary, detail?, direction?, hypothesisNames?, citation?, source?}], message:string, decision:{kind:"converged"|"test"|"gather", ...} }`;
+Update the differential. Emit the FULL set of live hypotheses with updated probabilities (hypotheses that are now ruled out should be omitted from "hypotheses" but named in rulesOut). Branch (set parent) when a finding splits a hypothesis. Return ONLY the JSON object matching the schema: { hypotheses:[{name, description?, codes?, probability(0-100), isZebra?, baseRateNote?, parent?, rulesOut?:[name], discriminatingTests?:[{name, rationale, discriminatesBetween?:[name]}]}], sources?:[{ref:"N1", title, url?, identifier?, type?, note?}], findings?:[{summary, detail?, direction?, hypothesisNames?, sourceRefs?:["S1"], source?}], message:string, decision:{kind:"converged"|"test"|"gather", ...} }`;
 
   // Use the reliable send: POST message:send, then poll the task to
   // completion. The dev-weu gateway often returns a plain-text 404 on the
@@ -241,6 +215,7 @@ Update the differential. Emit the FULL set of live hypotheses with updated proba
     return {
       hypotheses: [],
       findings: [],
+      sources: [],
       message: rawText || "(no response from engine)",
       decision: { kind: "gather", reason: "engine output unparseable; retry" },
       pruned: [],
@@ -270,16 +245,33 @@ function mergeEngineResponse(
   const pruned: string[] = [];
   const newFindings: Finding[] = [];
 
+  // 0) Fold the engine's declared sources into the case pool. This yields the
+  //    ref -> stable-index map every marker below is rewritten against, so a
+  //    marker can only survive if it points at a source that actually exists.
+  const { refMap, added: newSources } = mergeSources(c.sources, raw.sources, round);
+  const cite = (t: string | undefined) => rewriteMarkers(t, refMap);
+  const refsToIndices = (refs: string[] | undefined): number[] | undefined => {
+    const ids = [
+      ...new Set(
+        (refs || [])
+          .map((r) => refMap[r.trim().toUpperCase()] ?? refMap[r.trim()])
+          .filter((i): i is number => typeof i === "number"),
+      ),
+    ].sort((a, b) => a - b);
+    return ids.length ? ids : undefined;
+  };
+
   // 1) Record findings first (used for evidence refs).
   for (const rf of raw.findings || []) {
     const f: Finding = {
       id: newId("fnd"),
-      summary: rf.summary,
-      detail: rf.detail,
+      summary: cite(rf.summary) ?? rf.summary,
+      detail: cite(rf.detail),
       source: (rf.source as Finding["source"]) || "literature",
       direction: rf.direction || "neutral",
       hypothesisIds: [],
       citation: rf.citation,
+      sourceIds: refsToIndices(rf.sourceRefs),
       createdAt: now,
     };
     // Resolve hypothesis names → ids for the finding.
@@ -345,7 +337,7 @@ function mergeEngineResponse(
     const discriminatingTests: TestProposal[] | undefined = rh.discriminatingTests?.map((t) => ({
       id: newId("tst"),
       name: t.name,
-      rationale: t.rationale,
+      rationale: cite(t.rationale) ?? t.rationale,
       discriminatesBetween: (t.discriminatesBetween || [])
         .map((n) => findByName(c, n)?.id)
         .filter((x): x is string => !!x),
@@ -355,10 +347,10 @@ function mergeEngineResponse(
     if (existing) {
       // Update in place.
       existing.probability = prob;
-      existing.description = rh.description ?? existing.description;
+      existing.description = cite(rh.description) ?? existing.description;
       existing.codes = rh.codes ?? existing.codes;
       existing.isZebra = rh.isZebra ?? existing.isZebra;
-      existing.baseRateNote = rh.baseRateNote ?? existing.baseRateNote;
+      existing.baseRateNote = cite(rh.baseRateNote) ?? existing.baseRateNote;
       existing.discriminatingTests = discriminatingTests ?? existing.discriminatingTests;
       existing.updatedAt = now;
       // Attach finding evidence.
@@ -377,7 +369,7 @@ function mergeEngineResponse(
       const h: Hypothesis = {
         id: newId("hyp"),
         name: rh.name,
-        description: rh.description,
+        description: cite(rh.description),
         codes: rh.codes,
         probability: prob,
         status: "live",
@@ -386,7 +378,7 @@ function mergeEngineResponse(
         evidenceFor: [],
         evidenceAgainst: [],
         isZebra: rh.isZebra,
-        baseRateNote: rh.baseRateNote,
+        baseRateNote: cite(rh.baseRateNote),
         discriminatingTests,
         createdAt: now,
         updatedAt: now,
@@ -428,18 +420,23 @@ function mergeEngineResponse(
   // 5) Resolve the decision.
   const decision = resolveDecision(c, raw, round);
 
-  // 6) Narrate.
+  // 6) Narrate. The chat message has its markers stripped rather than
+  //    rewritten (ADR 0003 / grill Q2): citation chips in a conversational
+  //    bubble read as noise, and the same claims are cited where they land on
+  //    the tree.
+  const message = (rewriteMarkers(raw.message, {}) || "").trim() || `Round ${round} complete`;
   appendEvent(c, {
     round,
     kind: "engine_message",
-    summary: raw.message || `Round ${round} complete`,
-    payload: { message: raw.message },
+    summary: message,
+    payload: { message },
   });
 
   return {
     hypotheses: upserted,
     findings: newFindings,
-    message: raw.message || `Round ${round} complete`,
+    sources: newSources,
+    message,
     decision,
     pruned,
   };
@@ -537,21 +534,40 @@ export function setWorkingDiagnosis(
   });
 }
 
-/** Walk the tree up from a hypothesis to the root, narrating the path. */
+/**
+ * Walk the tree up from a hypothesis to the root, narrating the path.
+ *
+ * Each step carries the markers of the sources actually behind it, so the trail
+ * is the defensible artifact ADR 0003 promises: a physician can retrace not
+ * just *what* was concluded but *what it rests on*. Steps with no grounded
+ * evidence get no markers — visibly, which is the point.
+ */
 function buildReasoningTrail(c: Case, hypothesisId: string): string[] {
+  const findingsById = new Map(c.findings.map((f) => [f.id, f]));
+  /** Every pool index cited by the evidence attached to a hypothesis. */
+  const marker = (h: Hypothesis): string => {
+    const ids = new Set<number>();
+    for (const e of [...h.evidenceFor, ...h.evidenceAgainst]) {
+      for (const i of findingsById.get(e.findingId)?.sourceIds || []) ids.add(i);
+    }
+    for (const i of citedIndices(h.baseRateNote)) ids.add(i);
+    for (const i of citedIndices(h.description)) ids.add(i);
+    return ids.size ? ` [${[...ids].sort((a, b) => a - b).join(", ")}]` : "";
+  };
+
   const trail: string[] = [];
   let cur: Hypothesis | undefined = c.hypotheses[hypothesisId];
   while (cur) {
-    const why = cur.branchedBecause
-      ? `${cur.name} — ${cur.branchedBecause}`
-      : cur.name;
-    trail.unshift(why);
+    const why = cur.branchedBecause ? `${cur.name} — ${cur.branchedBecause}` : cur.name;
+    trail.unshift(`${why}${marker(cur)}`);
     cur = cur.parentId ? c.hypotheses[cur.parentId] : undefined;
   }
   // Append the pruned siblings as "considered and ruled out".
   const pruned = Object.values(c.hypotheses).filter((h) => h.status === "ruled_out");
   for (const p of pruned) {
-    trail.push(`Ruled out: ${p.name}${p.branchedBecause ? ` (${p.branchedBecause})` : ""}`);
+    trail.push(
+      `Ruled out: ${p.name}${p.branchedBecause ? ` (${p.branchedBecause})` : ""}${marker(p)}`,
+    );
   }
   return trail;
 }

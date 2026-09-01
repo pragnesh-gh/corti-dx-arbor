@@ -47,6 +47,7 @@ import { provisionTeam, teardownTeam, recreateAgent, type AgentTeam } from "./do
 import { store } from "./domain/case-store.js";
 import { createCase } from "./domain/case-factory.js";
 import { recordFinding, runRound, setWorkingDiagnosis, withRetry } from "./domain/engine.js";
+import { runEvidencePass } from "./domain/evidence.js";
 import { buildTreatmentPlan } from "./domain/treatment.js";
 import type { Case, Presentation } from "./domain/types.js";
 
@@ -176,7 +177,29 @@ app.post("/api/cases/:id/advance", async (req, res) => {
           const fresh = await recreateAgent(client, team, "hypothesisEngine");
           return fresh.id;
         };
-        result = await runRound(client, agentId, c, { onStaleAgent });
+        // The evidence pass runs alongside the hypothesis engine, not before
+        // it: the two agents are independent this round, and what the pass
+        // brings back becomes the citable Source pool for the NEXT round's
+        // prompt. That keeps round latency flat while still grounding the
+        // citations. See docs/adr/0003-grounded-inline-citations.md.
+        //
+        // It is deliberately awaited via allSettled: a failed or slow evidence
+        // pass degrades the round to ungrounded, it never fails it.
+        const evidenceAgentId = t?.evidenceOrchestrator.id;
+        const [roundOutcome] = await Promise.allSettled([
+          runRound(client, agentId, c, { onStaleAgent }),
+          evidenceAgentId
+            ? runEvidencePass(client, evidenceAgentId, c, {
+                onStaleAgent: async (oldId) => {
+                  if (!team || team.evidenceOrchestrator.id !== oldId) return;
+                  const fresh = await recreateAgent(client, team, "evidenceOrchestrator");
+                  return fresh.id;
+                },
+              })
+            : Promise.resolve(null),
+        ]);
+        if (roundOutcome.status === "rejected") throw roundOutcome.reason;
+        result = roundOutcome.value;
       } catch (e) {
         lastErr = e;
         if (!/404 page not found|404/i.test((e as Error).message || "")) throw e;

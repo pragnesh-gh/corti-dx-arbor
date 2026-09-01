@@ -1,5 +1,6 @@
 /**
- * Recipe 6 — Evidence & experts. Source: server/domain/agent-definitions.ts, server/domain/engine.ts.
+ * Recipe 6 — Evidence & experts. Source: server/domain/agent-definitions.ts,
+ * server/domain/engine.ts, server/domain/evidence.ts, server/domain/sources.ts.
  */
 
 import { RecipeHeader } from "../RecipeHeader.js";
@@ -22,8 +23,9 @@ export default function EvidenceRecipe() {
 
       <h2 className="docs-h2">The registry experts</h2>
       <p className="muted small">
-        Source: <code>server/domain/agent-definitions.ts</code>. The hypothesis
-        engine and evidence orchestrator delegate to these Corti registry experts.
+        Source: <code>server/domain/agent-definitions.ts</code>. The{" "}
+        <strong>evidence pass</strong> (<code>server/domain/evidence.ts</code>)
+        drives these Corti registry experts once per round.
       </p>
       <ul>
         <li><strong>pubmed-expert</strong> — literature search.</li>
@@ -34,17 +36,60 @@ export default function EvidenceRecipe() {
         <li><strong>web-search-expert</strong> — prevalence, guidelines.</li>
       </ul>
 
-      <h2 className="docs-h2">Citations</h2>
+      <h2 className="docs-h2">The evidence pass</h2>
       <p>
-        Findings from the literature carry a <code>citation</code> (label + url).
-        The detail panel renders supporting evidence in green and contradicting
-        evidence in red, each linking back to its finding.
+        Every round fires two agents <strong>in parallel</strong>: the hypothesis
+        engine updates the differential, and the evidence pass asks the experts
+        for real, checkable literature on the top live hypotheses. The pass is
+        best-effort — if it times out or the platform flaps, the round still
+        completes, just ungrounded.
       </p>
-      <pre className="docs-code">{`// a finding the engine produced from the experts
-{ summary: "ASO titer 800 IU/mL (reference <200)",
-  direction: "supports",
-  hypothesisNames: ["Acute rheumatic fever"],
-  citation: { label: "PubMed 12345678", url: "https://..." } }`}</pre>
+      <p>
+        The pass is also <strong>pipelined</strong>. What it returns in round{" "}
+        <em>n</em> becomes findings immediately, and the citable source pool for
+        round <em>n+1</em>. That keeps round latency flat instead of doubling it —
+        the cost is that round 1 has nothing to cite yet, which is honest: round 1
+        is pattern recognition, not literature review.
+      </p>
+
+      <h2 className="docs-h2">Sources and inline citations</h2>
+      <p>
+        A <strong>Source</strong> is a citable artifact — a paper, a trial, a
+        guideline. A <strong>Citation</strong> is one <em>use</em> of a Source at
+        one point in the text. Sources live in one append-only, deduplicated pool
+        per case (<code>case.sources</code>), deduped on DOI → PMID → NCT →
+        normalized URL → title, so one paper is one number no matter how often it
+        is invoked. A source's index <em>is</em> its marker number, and never
+        changes.
+      </p>
+      <p>
+        Prose carries inline markers that render as superscript chips: the
+        hypothesis description and base-rate note, the discriminating-test
+        rationale, each finding, and every step of the reasoning trail.
+      </p>
+      <pre className="docs-code">{`// what the engine returns
+{ sources: [{ ref: "N1", title: "Age-stratified PE prevalence",
+              identifier: "PMID:12345678", type: "paper" }],
+  hypotheses: [{ name: "Pulmonary embolism",
+                 baseRateNote: "Prevalence rises sharply after 60 [N1]." }] }
+
+// what the server stores, after merging into the pool
+{ baseRateNote: "Prevalence rises sharply after 60 [3]." }`}</pre>
+      <div className="docs-callout">
+        A marker the model cites but never declared is <strong>stripped</strong>{" "}
+        server-side, never rendered. An uncited claim is honest; a footnote that
+        resolves to nothing is not. Sources are never invented by the reasoning
+        model on its own authority — the experts have to return them.
+      </div>
+
+      <h2 className="docs-h2">Reading the findings</h2>
+      <p>
+        The findings panel groups findings under the hypothesis each one moves,
+        ranked by probability, with a for/against tally per group — so the list
+        answers "so what?" rather than just "what happened". A finding bearing on
+        several hypotheses appears under each. The <em>Timeline</em> toggle
+        restores the plain chronological view.
+      </p>
 
       <h2 className="docs-h2">Codes</h2>
       <p>
