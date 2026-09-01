@@ -17,7 +17,8 @@
     "smoke": "tsx scripts/smoke.ts",
     "scenarios": "tsx scripts/run-scenarios.ts",
     "probe-registry": "tsx scripts/probe-registry.ts",
-    "typecheck": "npm --workspace server run typecheck && npm --workspace web run typecheck"
+    "typecheck": "npm --workspace server run typecheck && npm --workspace web run typecheck",
+    "test": "npm --workspace server run test"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

@@ -1,11 +1,22 @@
 /**
- * ChatPanel — free-text conversation with the engine + the HITL gate.
+ * ChatPanel — free-text decision-support Q&A with the engine.
  *
- * Shows the engine's narration per round, lets the clinician ask questions,
- * order a test result, and answer the HITL prompt.
+ * The round / diagnose / treat buttons used to live here; they have moved to
+ * the NextAction rail, where they sit in the linear path the clinician walks.
+ * This panel is now the "ask the engine" channel: "why this hypothesis?",
+ * "what test splits the top 2?", "show me the zebra".
+ *
+ * It reads as ONE conversation anchored to the input at the bottom. Round
+ * narration (engine_message / diagnosis / treatment events) and the
+ * clinician's own questions are merged into a single time-ordered thread
+ * instead of being split into two labelled sections — previously the answer to
+ * a question landed in a separate block above the narration, so it was never
+ * obvious where the reply to what you just asked had gone. Now the newest turn
+ * is always the last thing above the box you typed in, and the thread
+ * auto-scrolls to it.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Case, CaseEvent } from "./types.js";
 import * as api from "./api.js";
 
@@ -16,61 +27,66 @@ interface Props {
   setBusy: (b: boolean) => void;
 }
 
-export function ChatPanel({ c, onUpdated, busy, setBusy }: Props) {
+/** One turn in the thread. A question and its answer are separate turns so
+ *  they stack in reading order directly above the input. */
+type Turn =
+  | { kind: "narration"; id: string; at: string; role: string; body: string; eventKind: string }
+  | { kind: "you"; id: string; at: string; body: string }
+  | { kind: "answer"; id: string; at: string; body: string };
+
+interface QA {
+  q: string;
+  a: string | null;
+  at: string;
+  id: string;
+}
+
+export function ChatPanel({ c, onUpdated: _onUpdated, busy, setBusy }: Props) {
   const [msg, setMsg] = useState("");
-  const [reply, setReply] = useState<string | null>(null);
+  const [qa, setQa] = useState<QA[]>([]);
+  const endRef = useRef<HTMLDivElement | null>(null);
 
   const events = c.events.filter(
     (e) => e.kind === "engine_message" || e.kind === "diagnosis" || e.kind === "treatment",
   );
 
+  // Merge narration and Q&A into one chronological thread.
+  const turns: Turn[] = [
+    ...events.map((e: CaseEvent) => ({
+      kind: "narration" as const,
+      id: e.id,
+      at: e.createdAt,
+      role: labelFor(e.kind),
+      body: e.summary,
+      eventKind: e.kind,
+    })),
+    ...qa.flatMap((p): Turn[] => [
+      { kind: "you", id: `${p.id}-q`, at: p.at, body: p.q },
+      ...(p.a !== null ? [{ kind: "answer" as const, id: `${p.id}-a`, at: p.at, body: p.a }] : []),
+    ]),
+  ].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+
+  // Anchor on the newest turn: the answer to what you just asked is always the
+  // last thing above the input.
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [turns.length, busy]);
+
   async function send() {
-    if (!msg.trim() || busy) return;
+    const q = msg.trim();
+    if (!q || busy) return;
+    const id = `qa-${Date.now()}`;
+    const at = new Date().toISOString();
+    setMsg("");
     setBusy(true);
+    // Echo the question into the thread immediately, so it is visible in place
+    // while the engine is still thinking.
+    setQa((prev) => [...prev, { q, a: null, at, id }]);
     try {
-      const r = await api.chat(c.id, msg);
-      setReply(r.reply);
+      const r = await api.chat(c.id, q);
+      setQa((prev) => prev.map((p) => (p.id === id ? { ...p, a: r.reply } : p)));
     } catch (e) {
-      setReply(`⚠️ ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function runRound() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const next = await api.advance(c.id);
-      onUpdated(next);
-    } catch (e) {
-      setReply(`⚠️ ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function diagnose() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const next = await api.diagnose(c.id, {});
-      onUpdated(next);
-    } catch (e) {
-      setReply(`⚠️ ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function treat() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const next = await api.treat(c.id);
-      onUpdated(next);
-    } catch (e) {
-      setReply(`⚠️ ${(e as Error).message}`);
+      setQa((prev) => prev.map((p) => (p.id === id ? { ...p, a: `⚠️ ${(e as Error).message}` } : p)));
     } finally {
       setBusy(false);
     }
@@ -78,60 +94,57 @@ export function ChatPanel({ c, onUpdated, busy, setBusy }: Props) {
 
   return (
     <div className="chat-panel">
-      <div className="panel-head">
-        <h3>Conversation</h3>
-        <span className={`status-chip ${c.status}`}>{c.status}</span>
-      </div>
-
-      <div className="chat-stream">
-        {events.length === 0 && <p className="muted">Start a round to see the engine's reasoning.</p>}
-        {events.map((e: CaseEvent) => (
-          <div key={e.id} className={`msg ${e.kind}`}>
-            <div className="msg-role">{labelFor(e.kind)}</div>
-            <div className="msg-body">{e.summary}</div>
-          </div>
-        ))}
-        {reply && (
-          <div className="msg engine_message">
+      <div className="chat-thread">
+        {turns.length === 0 && (
+          <p className="muted small chat-empty">
+            Ask the engine a question — your question and its answer appear here, newest at the
+            bottom.
+          </p>
+        )}
+        {turns.map((t) =>
+          t.kind === "you" ? (
+            <div key={t.id} className="msg you">
+              <div className="msg-role">you</div>
+              <div className="msg-body">{t.body}</div>
+            </div>
+          ) : t.kind === "answer" ? (
+            <div key={t.id} className="msg engine_message answer">
+              <div className="msg-role">engine</div>
+              <div className="msg-body">{t.body}</div>
+            </div>
+          ) : (
+            <div key={t.id} className={`msg ${t.eventKind} narration`}>
+              <div className="msg-role">{t.role}</div>
+              <div className="msg-body">{t.body}</div>
+            </div>
+          ),
+        )}
+        {busy && (
+          <div className="msg engine_message answer pending">
             <div className="msg-role">engine</div>
-            <div className="msg-body">{reply}</div>
+            <div className="msg-body">
+              <span className="spinner" /> thinking…
+            </div>
           </div>
         )}
-      </div>
-
-      {c.awaitingHitl && c.hitlPrompt && (
-        <div className="hitl-banner">
-          <strong>Awaiting clinician input</strong>
-          <p>{c.hitlPrompt}</p>
-          <p className="muted small">Enter the result under “Findings / test result” on the left, then advance a round.</p>
-        </div>
-      )}
-
-      <div className="chat-actions">
-        <button onClick={runRound} disabled={busy || c.status === "closed"}>
-          {busy ? "…" : "Advance a round"}
-        </button>
-        {c.status === "reasoning" && (
-          <button onClick={diagnose} disabled={busy} className="ghost">
-            Set working dx
-          </button>
-        )}
-        {(c.status === "converged" || c.status === "treatment") && !c.treatmentPlan && (
-          <button onClick={treat} disabled={busy} className="ghost">
-            Build treatment plan
-          </button>
-        )}
+        <div ref={endRef} className="chat-end" />
       </div>
 
       <div className="chat-input">
         <textarea
-          placeholder="Ask the engine: “why this hypothesis?”, “what test splits the top 2?”, “show me the zebra”…"
+          placeholder="Ask: “why this hypothesis?”, “what test splits the top 2?”, “show me the zebra”…"
           value={msg}
           onChange={(e) => setMsg(e.target.value)}
           rows={2}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              send();
+            }
+          }}
         />
         <button onClick={send} disabled={busy || !msg.trim()}>
-          Send
+          {busy ? <span className="spinner" /> : null} Send
         </button>
       </div>
     </div>
@@ -140,9 +153,13 @@ export function ChatPanel({ c, onUpdated, busy, setBusy }: Props) {
 
 function labelFor(kind: string): string {
   switch (kind) {
-    case "engine_message": return "engine";
-    case "diagnosis": return "diagnosis";
-    case "treatment": return "treatment plan";
-    default: return kind;
+    case "engine_message":
+      return "engine";
+    case "diagnosis":
+      return "diagnosis";
+    case "treatment":
+      return "treatment plan";
+    default:
+      return kind;
   }
 }

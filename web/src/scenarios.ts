@@ -13,9 +13,63 @@ export interface Scenario {
   title: string;
   blurb: string;
   presentation: Presentation;
+  /**
+   * When true, this card enters the guided tutorial (a scripted, canned
+   * walk-through) instead of starting a live case against the API. The
+   * tutorial's "Run this case for real" exit starts the named `liveScenarioId`.
+   */
+  tutorial?: boolean;
+  liveScenarioId?: string;
 }
 
 export const SCENARIOS: Scenario[] = [
+  {
+    id: "scn-tutorial",
+    title: "Guided tour — every feature in one case ★",
+    blurb:
+      "A scripted walk-through of the full run: the differential, horses vs zebras, the test gate, branching, evidence, the working diagnosis, and the treatment plan — with instant stepping and teaching cues. The best place to start.",
+    tutorial: true,
+    liveScenarioId: "scn-fever-rash",
+    presentation: {
+      chiefComplaint: "Fever and migrating joint pain for 8 days",
+      history:
+        "Started with a sore throat 2 weeks ago, now large joints (knees, ankles) ache and migrate over days. Fever 38.5–39°C. General malaise. No trauma. No prior similar episodes.",
+      observations: [
+        "T 38.7°C, HR 102, BP 118/74, RR 18",
+        "Swollen tender left knee, right ankle — warm but not erythematous",
+        "No mucosal lesions, no tick bite recalled",
+      ],
+      demographics: {
+        ageYears: 19,
+        sex: "male",
+        raceEthnicity: "Northern European",
+        location: "rural Minnesota, USA",
+        comorbidities: [],
+      },
+    },
+  },
+  {
+    id: "scn-walkthrough-strep",
+    title: "Quick walk-through: sore throat + fever (1–2 rounds)",
+    blurb:
+      "A second short, clear-cut case to run end-to-end. The engine proposes a rapid strep test; enter the result and watch it converge in 1–2 rounds.",
+    presentation: {
+      chiefComplaint: "Sore throat and fever for 2 days",
+      history:
+        "Pain on swallowing, fever 38.6°C, no cough, no runny nose. Otherwise well. No known sick contacts reported.",
+      observations: [
+        "T 38.6°C, HR 88, BP 118/76",
+        "Exudate on tonsils, tender enlarged anterior cervical lymph nodes, no rash",
+      ],
+      demographics: {
+        ageYears: 9,
+        sex: "female",
+        raceEthnicity: "Northern European",
+        location: "Aarhus, Denmark",
+        comorbidities: [],
+      },
+    },
+  },
   {
     id: "scn-fever-rash",
     title: "Fever + migrating joint pain (a young adult)",

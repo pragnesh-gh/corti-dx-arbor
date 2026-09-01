@@ -11,25 +11,30 @@
  * never serialized, never returned to callers.
  */
 
+import { randomUUID } from "node:crypto";
 import type {
   AgentCreateRequest,
   AgentResponse,
   AgentsListResponse,
   A2ASendMessageRequest,
   A2ASendMessageResponse,
+  A2ATask,
   RegistryConnectorsResponse,
   A2AStreamResponse,
 } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 240_000; // platform can take minutes on expert-chained calls
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export interface CortiConfig {
-  apiBaseUrl: string; // https://api.dev-weu.corti.app
-  authBaseUrl: string; // https://auth.dev-weu.corti.app
+  apiBaseUrl: string; // https://api.dev-weu.corti.app (or eu / staging-eu / us / local)
+  authBaseUrl: string; // https://auth.<region>.corti.app (empty for local)
   clientId: string;
   clientSecret: string;
   tenant: string; // base — realm AND Tenant-Name header
   a2aVersion?: string; // default 1.0
+  region?: string; // dev-weu | eu | staging-eu | us | local (for diagnostics)
+  staticToken?: string; // local region uses a static token instead of OAuth
 }
 
 export class CortiClient {
@@ -41,28 +46,45 @@ export class CortiClient {
     this.cfg = { a2aVersion: "1.0", ...cfg };
   }
 
-  /** Build a CortiClient from process environment (dev-weu keys). */
+  /** Build a CortiClient from process environment.
+   *
+   * Region is selected by `CORTI_REGION` (default `dev-weu`). Each region reads
+   * its own `AGENT_API_URL_<REGION>`, `AGENT_API_AUTH_URL_<REGION>`,
+   * `AGENT_API_CLIENT_ID_<REGION>`, `AGENT_API_CLIENT_SECRET_<REGION>` env vars.
+   * Supported: `dev-weu`, `eu`, `staging-eu`, `us`, `local`.
+   * NOTE: as of 2026-08-23, dev-weu's `/a2a/message:send` returns a plain-text
+   * `404 page not found` while its agent CRUD works — the A2A route appears not
+   * to be routed on that deployment. `eu` is confirmed working end-to-end.
+   * Set `CORTI_REGION=eu` to run Arbor against the working deployment. */
   static fromEnv(env: NodeJS.ProcessEnv = process.env): CortiClient {
-    const required = [
-      "AGENT_API_URL_DEV_WEU",
-      "AGENT_API_AUTH_URL_DEV_WEU",
-      "AGENT_API_CLIENT_ID_DEV_WEU",
-      "AGENT_API_CLIENT_SECRET_DEV_WEU",
-    ] as const;
+    const region = (env.CORTI_REGION || "dev-weu").toLowerCase();
+    const suffix = region === "dev-weu" ? "DEV_WEU"
+      : region === "staging-eu" ? "STAGING_EU"
+      : region.toUpperCase(); // eu -> EU, us -> US, local -> LOCAL
+    const urlKey = region === "local" ? "AGENT_API_TOKEN_LOCAL"
+      : `AGENT_API_URL_${suffix}`;
+    const authKey = `AGENT_API_AUTH_URL_${suffix}`;
+    const idKey = `AGENT_API_CLIENT_ID_${suffix}`;
+    const secretKey = `AGENT_API_CLIENT_SECRET_${suffix}`;
+    const required = region === "local"
+      ? ["AGENT_API_TOKEN_LOCAL"] as const
+      : [urlKey, authKey, idKey, secretKey] as const;
     for (const k of required) {
       if (!env[k]) {
         throw new Error(
-          `Missing ${k}. Copy .env.example to .env and fill in dev-weu credentials.`,
+          `Missing ${k} (CORTI_REGION=${region}). Copy .env.example to .env and fill in ${region} credentials.`,
         );
       }
     }
     return new CortiClient({
-      apiBaseUrl: env.AGENT_API_URL_DEV_WEU as string,
-      authBaseUrl: env.AGENT_API_AUTH_URL_DEV_WEU as string,
-      clientId: env.AGENT_API_CLIENT_ID_DEV_WEU as string,
-      clientSecret: env.AGENT_API_CLIENT_SECRET_DEV_WEU as string,
+      apiBaseUrl: env[urlKey] as string,
+      authBaseUrl: region === "local" ? "" : (env[authKey] as string),
+      clientId: region === "local" ? "" : (env[idKey] as string),
+      clientSecret: region === "local" ? "" : (env[secretKey] as string),
       tenant: env.CORTI_TENANT_NAME || "base",
       a2aVersion: env.A2A_VERSION || "1.0",
+      region,
+      staticToken: region === "local" ? (env.AGENT_API_TOKEN_LOCAL as string) : undefined,
     });
   }
 
@@ -84,6 +106,8 @@ export class CortiClient {
   }
 
   private async fetchToken(): Promise<string> {
+    // local region uses a pre-shared static token, no OAuth.
+    if (this.cfg.staticToken) return this.cfg.staticToken;
     const url = `${this.cfg.authBaseUrl}/realms/${this.cfg.tenant}/protocol/openid-connect/token`;
     const body = new URLSearchParams({
       grant_type: "client_credentials",
@@ -226,6 +250,147 @@ export class CortiClient {
         json: payload,
         headers: { "A2A-Version": this.cfg.a2aVersion || "1.0" },
       },
+    );
+  }
+
+  /** Fetch a task by id (A2A REST: GET .../a2a/tasks/{taskId}). */
+  getTask(agentId: string, taskId: string): Promise<A2ATask> {
+    return this.request<A2ATask>(
+      "GET",
+      `/v2/agentic/agents/${agentId}/a2a/tasks/${taskId}`,
+      { headers: { "A2A-Version": this.cfg.a2aVersion || "1.0" } },
+    );
+  }
+
+  /** List recent tasks for an agent (A2A REST: GET .../a2a/tasks). */
+  listTasks(agentId: string, pageSize = 20): Promise<{ tasks: A2ATask[]; nextPageToken?: string }> {
+    return this.request<{ tasks: A2ATask[]; nextPageToken?: string }>(
+      "GET",
+      `/v2/agentic/agents/${agentId}/a2a/tasks`,
+      {
+        params: { pageSize },
+        headers: { "A2A-Version": this.cfg.a2aVersion || "1.0" },
+      },
+    );
+  }
+
+  /**
+   * Send a message and reliably get the completed task result.
+   *
+   * The dev-weu gateway intermittently returns a plain-text "404 page not
+   * found" on POST .../a2a/message:send for long-running calls, even though
+   * the underlying task executes and completes (~1-3 min). So when send
+   * returns a task, poll its status to TASK_STATE_COMPLETED. When send 404s
+   * or times out, the task is still running in the background — recover it by
+   * listing the agent's tasks and finding ours by messageId, then poll that
+   * task to completion.
+   */
+  async sendMessageReliable(
+    agentId: string,
+    payload: A2ASendMessageRequest,
+    opts: {
+      timeoutMs?: number;
+      pollMs?: number;
+      signal?: AbortSignal;
+      /** Called when the send has 404'd several times in a row (the agent is
+       * likely stale — created in an earlier platform window). May return a
+       * fresh agentId to send to instead. Throwing aborts the loop. */
+      onStaleAgent?: (agentId: string) => Promise<string | void>;
+    } = {},
+  ): Promise<A2ASendMessageResponse> {
+    const pollMs = opts.pollMs ?? 5000;
+    const deadline = Date.now() + (opts.timeoutMs ?? 360_000); // 6 min budget
+    const baseMessageId = payload.message.messageId ?? randomUUID();
+
+    // The dev-weu platform has two failure modes for long-running sends:
+    //   (a) the send reaches the platform, a task is created and runs (~1-3
+    //       min), but the send RESPONSE comes back as 404 / "fetch failed".
+    //   (b) the agent is stale (created in an earlier window) or the platform
+    //       is fully down, and the send 404s without creating a task.
+    // So we loop: retry the send (each reach creates a task), and on every
+    // iteration also try to recover+poll a task by messageId. After several
+    // consecutive send-404s we invoke onStaleAgent (recreate) to get a fresh
+    // agent in the current window. Whichever path yields a completed task wins.
+    let knownTaskId: string | undefined;
+    let currentAgentId = agentId;
+    let lastErr = "";
+    let consecutiveSend404 = 0;
+    while (Date.now() < deadline) {
+      // Try to send. A successful send returns a task (maybe working/completed).
+      try {
+        const resp = await this.sendMessage(currentAgentId, {
+          ...payload,
+          message: { ...payload.message, messageId: baseMessageId },
+        });
+        if (resp.task?.id) knownTaskId = resp.task.id;
+        const st = resp.task?.status?.state ?? "";
+        if (/completed/i.test(st)) return resp;
+        if (/failed|cancelled|canceled/i.test(st)) {
+          throw new Error(`Task ${knownTaskId} ended in state ${st}.`);
+        }
+      } catch (e) {
+        lastErr = (e as Error)?.message || "";
+        if (!/404|timeout|aborted|fetch failed|ECONNRESET|ETIMEDOUT|stream|reset/i.test(lastErr)) throw e;
+        const is404 = /404 page not found|HTTP 404/i.test(lastErr);
+        consecutiveSend404 = is404 ? consecutiveSend404 + 1 : 0;
+        console.log(`[arbor] send failed ("${lastErr.slice(0, 60)}"); will retry send + recover task...`);
+        // If the send has 404'd several times in a row, the agent is likely
+        // stale (created in an earlier platform window). Ask the caller to
+        // recreate it so we send to a fresh agent in the current window.
+        if (is404 && consecutiveSend404 >= 3 && opts.onStaleAgent) {
+          try {
+            console.log(`[arbor] ${consecutiveSend404} consecutive send-404s — recreating agent...`);
+            const fresh = await opts.onStaleAgent(currentAgentId);
+            if (fresh) { currentAgentId = fresh; knownTaskId = undefined; consecutiveSend404 = 0; }
+          } catch (re) {
+            console.log(`[arbor] recreate failed ("${(re as Error).message.slice(0, 60)}"); will keep retrying...`);
+          }
+        }
+      }
+
+      // Try to recover a task by messageId (case a: send reached platform
+      // but the response 404'd; the task exists and may be running/completed).
+      if (!knownTaskId) {
+        try {
+          const { tasks } = await this.listTasks(currentAgentId, 30);
+          const byMsg = tasks.find((t) => t.status?.message?.messageId === baseMessageId);
+          knownTaskId = byMsg?.id;
+          if (!knownTaskId && tasks[0]?.status?.message?.messageId) {
+            // newest task with a messageId we can't attribute — only take it if
+            // it's working/completed and we have no other candidate
+            const recent = tasks[0];
+            if (/working|completed/i.test(recent.status?.state ?? "")) knownTaskId = recent.id;
+          }
+        } catch { /* list 404s in a down window — retry next loop */ }
+      }
+
+      // Poll the known task to completion (case a recovery, or after a
+      // successful send that's still WORKING).
+      if (knownTaskId) {
+        const taskDeadline = Date.now() + 200_000; // up to ~3.3 min of polling
+        while (Date.now() < taskDeadline && Date.now() < deadline) {
+          await sleep(pollMs);
+          try {
+            const task = await this.getTask(currentAgentId, knownTaskId);
+            const state = task.status?.state ?? "";
+            if (/completed/i.test(state)) return { task, contextId: task.contextId };
+            if (/failed|cancelled|canceled/i.test(state)) {
+              throw new Error(`Task ${knownTaskId} ended in state ${state}.`);
+            }
+            // still working — keep polling
+          } catch (e) {
+            if (/ended in state/i.test((e as Error).message)) throw e;
+            // getTask 404s transiently — keep polling
+          }
+        }
+      }
+
+      // No task recovered (case b: platform fully down) — back off and retry
+      // the whole send so a fresh attempt catches the next up-window.
+      await sleep(pollMs);
+    }
+    throw new Error(
+      `Could not complete the round within the timeout. Last send error: ${lastErr.slice(0, 100)}. The dev-weu platform may be in a down window — retry the round.`,
     );
   }
 

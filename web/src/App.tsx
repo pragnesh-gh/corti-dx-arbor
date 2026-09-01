@@ -1,12 +1,15 @@
 /**
  * Arbor — differential-diagnosis decision-tree UI.
  *
- * Layout: left = presentation + findings + entry form; center = the live
- * decision tree (the headline); right = chat + verdict + hypothesis detail.
+ * The app shell (Clinical Precision chrome) wraps every view with a top app
+ * bar. Inside it, a light hash-router switches between
+ * Home, the Workspace (live case console), the Tutorial (canned walk-through),
+ * and Docs (in-app recipes). The Workspace is a linear NextAction rail over a
+ * data-rich EvidencePanel, a Tree/List canvas toggle, a DetailPanel, and a
+ * bottom Timeline.
  *
- * A clinician picks a scenario (or writes one), advances rounds, enters test
- * results at HITL gates, and watches the tree branch and converge to a
- * working diagnosis, then a treatment plan.
+ * Routing is a small `view` state plus history state so the back button and
+ * shareable URLs work — no router dependency.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -14,16 +17,58 @@ import { DecisionTree } from "./DecisionTree.js";
 import { EvidencePanel } from "./EvidencePanel.js";
 import { ChatPanel } from "./ChatPanel.js";
 import { DetailPanel } from "./DetailPanel.js";
-import { SCENARIOS, type Scenario } from "./scenarios.js";
+import { NextAction } from "./NextAction.js";
+import { RankedDifferential } from "./RankedDifferential.js";
+import { Home } from "./Home.js";
+import { Docs } from "./docs/Docs.js";
+import { Tutorial } from "./Tutorial.js";
+import { AppShell, type View } from "./AppShell.js";
+import { Timeline } from "./Timeline.js";
+import { SCENARIOS, type Scenario, findScenario } from "./scenarios.js";
+import { TUTORIAL_STEPS } from "./tutorialCase.js";
 import * as api from "./api.js";
 import type { Case } from "./types.js";
 
+function viewFromHash(): View {
+  const h = window.location.hash.replace(/^#\/?/, "");
+  if (h.startsWith("docs")) return "docs";
+  if (h.startsWith("tutorial")) return "tutorial";
+  if (h.startsWith("workspace")) return "workspace";
+  return "home";
+}
+
 export function App() {
+  const [view, setView] = useState<View>(() => viewFromHash());
   const [c, setCase] = useState<Case | null>(null);
   const [busy, setBusy] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showScenarios, setShowScenarios] = useState(true);
+  const [treeVsList, setTreeVsList] = useState<"tree" | "list">("tree");
+  const [chatOpen, setChatOpen] = useState(false);
   const unsubRef = useRef<(() => void) | null>(null);
+
+  // Keep the view in sync with the hash (back button, shareable URL).
+  useEffect(() => {
+    const onPop = () => setView(viewFromHash());
+    window.addEventListener("popstate", onPop);
+    window.addEventListener("hashchange", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      window.removeEventListener("hashchange", onPop);
+    };
+  }, []);
+
+  function go(v: View) {
+    setView(v);
+    const hash =
+      v === "docs"
+        ? "#/docs"
+        : v === "workspace"
+          ? "#/workspace"
+          : v === "tutorial"
+            ? "#/tutorial"
+            : "#/";
+    if (window.location.hash !== hash) window.history.pushState(null, "", hash);
+  }
 
   // Subscribe to the live SSE stream for the active case.
   useEffect(() => {
@@ -33,7 +78,6 @@ export function App() {
       if (ev.kind === "snapshot" && ev.payload) {
         setCase(ev.payload as Case);
       } else if (ev.kind === "round" || ev.kind === "finding" || ev.kind === "diagnosis" || ev.kind === "treatment") {
-        // Refetch the canonical snapshot (the SSE payload may be partial).
         api.getCase(c.id).then(setCase).catch(() => {});
       }
     });
@@ -42,13 +86,23 @@ export function App() {
     };
   }, [c?.id]);
 
-  async function startScenario(s: Scenario) {
+  // A tutorial scenario enters the scripted walk-through (no live API);
+  // a normal scenario starts a live case against the API.
+  function startScenario(s: Scenario) {
+    if (s.tutorial) {
+      go("tutorial");
+      return;
+    }
+    startScenarioLive(s);
+  }
+
+  async function startScenarioLive(s: Scenario) {
     setBusy(true);
     try {
       const created = await api.createCase(s.presentation, s.title);
       setCase(created);
       setSelectedId(null);
-      setShowScenarios(false);
+      go("workspace");
     } catch (e) {
       alert(`Failed to start: ${(e as Error).message}\nIs the Arbor server running on :8787 with .env set?`);
     } finally {
@@ -56,20 +110,24 @@ export function App() {
     }
   }
 
+  // "Run this case for real" — exit the tutorial into a live run of the
+  // underlying scenario the tour was based on.
+  function exitTutorialToLive() {
+    const tut = SCENARIOS.find((s) => s.tutorial);
+    const live = tut?.liveScenarioId ? findScenario(tut.liveScenarioId) : undefined;
+    startScenarioLive(live ?? { ...tut!, tutorial: false });
+  }
+
   async function startBlank() {
     setBusy(true);
     try {
       const created = await api.createCase(
-        {
-          chiefComplaint: "New presentation",
-          observations: [],
-          demographics: {},
-        },
+        { chiefComplaint: "New presentation", observations: [], demographics: {} },
         "Untitled case",
       );
       setCase(created);
       setSelectedId(null);
-      setShowScenarios(false);
+      go("workspace");
     } catch (e) {
       alert((e as Error).message);
     } finally {
@@ -77,82 +135,98 @@ export function App() {
     }
   }
 
-  return (
-    <div className="app">
-      <header>
-        <div className="brand">
-          <span className="logo">🌳</span>
-          <div>
-            <h1>Arbor</h1>
-            <p className="tag">retraceable differential diagnosis</p>
-          </div>
-        </div>
-        <div className="header-actions">
-          {c && (
-            <>
-              <span className="case-title">{c.title}</span>
-              <span className="round-chip">round {c.round}</span>
-              <button className="ghost" onClick={() => setShowScenarios((v) => !v)}>
-                {showScenarios ? "Hide scenarios" : "New case"}
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+  function newCase() {
+    setCase(null);
+    setSelectedId(null);
+    go("home");
+  }
 
-      {showScenarios || !c ? (
-        <div className="scenarios">
-          <h2>Choose an example scenario, or start a blank case</h2>
-          <p className="muted">
-            Each scenario is a patient who just walked in with preliminary tests done. Run rounds,
-            order tests at the HITL gates, and watch the tree narrow to a working diagnosis — then a
-            treatment plan with surgical case-finding.
-          </p>
-          <div className="scenario-grid">
-            {SCENARIOS.map((s) => (
-              <button key={s.id} className="scenario-card" onClick={() => startScenario(s)}>
-                <h3>{s.title}</h3>
-                <p className="muted small">{s.blurb}</p>
-                <div className="demo small">
-                  {[
-                    s.presentation.demographics.ageYears != null && `age ${s.presentation.demographics.ageYears}`,
-                    s.presentation.demographics.sex,
-                    s.presentation.demographics.location,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </div>
-              </button>
-            ))}
-            <button className="scenario-card blank" onClick={startBlank}>
-              <h3>+ Blank case</h3>
-              <p className="muted small">Write your own presentation.</p>
-            </button>
-          </div>
-          {!c && (
-            <p className="hint muted small">
-              Backend: <code>npm run dev:server</code> (needs Corti dev-WEU creds in <code>.env</code>).
-            </p>
-          )}
-        </div>
-      ) : (
+  const inCase = view === "workspace" || view === "tutorial";
+  // For the tutorial, use the first canned snapshot's identity in the app bar
+  // (the name/location don't change across steps; the live `c` is null there).
+  const shellCase = view === "tutorial" ? TUTORIAL_STEPS[0]!.case : c;
+
+  return (
+    <AppShell view={view} c={inCase ? shellCase : null} onGo={go} onNewCase={newCase}>
+      {view === "docs" ? (
+        <Docs />
+      ) : view === "tutorial" ? (
+        <Tutorial
+          onExitToLive={exitTutorialToLive}
+          onExitToHome={() => go("home")}
+        />
+      ) : view === "workspace" && c ? (
         <div className="workspace">
           <aside className="pane left">
-            <EvidencePanel c={c} onUpdated={setCase} busy={busy} setBusy={setBusy} />
+            <NextAction
+              c={c}
+              onUpdated={setCase}
+              busy={busy}
+              setBusy={setBusy}
+              onNewCase={newCase}
+            />
+            <div className="na-divider" />
+            <EvidencePanel c={c} onSelectHypothesis={setSelectedId} />
           </aside>
           <main className="pane center">
             <div className="center-head">
               <h3>Reasoning tree</h3>
-              {c.awaitingHitl && <span className="hitl-chip">awaiting your input</span>}
+              <div className="view-toggle">
+                <button
+                  className={treeVsList === "tree" ? "on" : "ghost"}
+                  onClick={() => setTreeVsList("tree")}
+                >
+                  Tree
+                </button>
+                <button
+                  className={treeVsList === "list" ? "on" : "ghost"}
+                  onClick={() => setTreeVsList("list")}
+                >
+                  List
+                </button>
+              </div>
             </div>
-            <DecisionTree c={c} selectedId={selectedId} onSelect={setSelectedId} />
+            {treeVsList === "tree" ? (
+              <DecisionTree c={c} selectedId={selectedId} onSelect={setSelectedId} />
+            ) : (
+              <RankedDifferential c={c} selectedId={selectedId} onSelect={setSelectedId} />
+            )}
+            <Timeline c={c} />
           </main>
           <aside className="pane right">
-            <ChatPanel c={c} onUpdated={setCase} busy={busy} setBusy={setBusy} />
-            <DetailPanel c={c} selectedId={selectedId} />
+            <DetailPanel
+              c={c}
+              selectedId={selectedId}
+              onUpdated={setCase}
+              busy={busy}
+              setBusy={setBusy}
+            />
+            {/* The toggle is the dock's header, so the control and the thread
+                it opens read as one unit anchored to the bottom of the pane. */}
+            <div className={`chat-dock ${chatOpen ? "open" : ""}`}>
+              <button
+                className="chat-toggle ghost"
+                onClick={() => setChatOpen((v) => !v)}
+                aria-expanded={chatOpen}
+              >
+                <span>Ask the engine</span>
+                <span className="chat-caret">{chatOpen ? "▾" : "▴"}</span>
+              </button>
+              {chatOpen && <ChatPanel c={c} onUpdated={setCase} busy={busy} setBusy={setBusy} />}
+            </div>
           </aside>
         </div>
+      ) : (
+        <Home
+          onStartScenario={startScenario}
+          onStartBlank={startBlank}
+          busy={busy}
+          onOpenDocs={() => go("docs")}
+        />
       )}
-    </div>
+    </AppShell>
   );
 }
+
+// Re-export so Docs can deep-link back into the demo scenarios if needed.
+export { SCENARIOS };

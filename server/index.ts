@@ -20,15 +20,34 @@
  * result, then /advance again. The cycle continues until "converged".
  */
 
-import "dotenv/config";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import dotenv from "dotenv";
+
+// Load .env from the repo root, not just the server/ workspace dir. The dev
+// script runs `tsx watch index.ts` with cwd=server/, so dotenv/config (which
+// reads process.cwd()/.env) would miss the root .env. Walk up to find it.
+(function loadRootEnv() {
+  let dir = process.cwd();
+  for (let i = 0; i < 6; i++) {
+    const candidate = path.join(dir, ".env");
+    if (fs.existsSync(candidate)) { dotenv.config({ path: candidate }); return; }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // fall back to default behavior (process.cwd()/.env)
+  dotenv.config();
+})();
 import cors from "cors";
 import express from "express";
 
 import { CortiClient } from "./corti/client.js";
-import { provisionTeam, teardownTeam, type AgentTeam } from "./domain/agent-manager.js";
+import { provisionTeam, teardownTeam, recreateAgent, type AgentTeam } from "./domain/agent-manager.js";
 import { store } from "./domain/case-store.js";
 import { createCase } from "./domain/case-factory.js";
 import { recordFinding, runRound, setWorkingDiagnosis, withRetry } from "./domain/engine.js";
+import { applyEvidence, fetchEvidence } from "./domain/evidence.js";
 import { buildTreatmentPlan } from "./domain/treatment.js";
 import type { Case, Presentation } from "./domain/types.js";
 
@@ -39,7 +58,33 @@ app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
 let client: CortiClient;
-let team: AgentTeam;
+let team: AgentTeam | null = null;
+let teamPromise: Promise<AgentTeam> | null = null;
+
+/** Resolve the agent team, waiting for the background boot-time provisioning if
+ * it's still in flight. Handlers call this instead of touching `team` directly. */
+async function getTeam(): Promise<AgentTeam> {
+  if (team) return team;
+  if (!teamPromise) teamPromise = provisionTeam(client).then((t) => { team = t; return t; });
+  return teamPromise;
+}
+
+/** Get the hypothesis-engine id, waiting for the team. If the team provision
+ * itself 404'd (platform in a down window at boot), this re-attempts provisioning. */
+async function getHypothesisEngineId(): Promise<string> {
+  for (let i = 0; i < 4; i++) {
+    try {
+      const t = await getTeam();
+      return t.hypothesisEngine.id;
+    } catch (e) {
+      // provisioning 404'd in a platform down window — reset and retry shortly
+      teamPromise = null;
+      console.log(`[arbor] team not ready yet (${(e as Error).message.slice(0, 60)}); retrying...`);
+      await new Promise((r) => setTimeout(r, 4000));
+    }
+  }
+  throw new Error("Agent team unavailable — the dev-weu platform is in a 404 window. Retry in a moment.");
+}
 
 // ---- SSE fan-out (per-case live subscribers) ------------------------------
 
@@ -111,7 +156,62 @@ app.post("/api/cases/:id/advance", async (req, res) => {
     return;
   }
   try {
-    const result = await runRound(client, team.hypothesisEngine.id, c);
+    // Self-heal across dev-weu platform "window" flaps: an agent created in an
+    // earlier window reliably 404s on /a2a/message:send once the platform flips
+    // to a new window. If a round 404s, recreate the hypothesis engine (which
+    // also retries across windows via withRetry) and retry the round. Loop a
+    // few times so we ride out a 404 window into the next working one.
+    // (runRound increments c.round at the top; we undo that on each retry.)
+    // The evidence pass runs alongside the hypothesis engine, not before it:
+    // the two agents are independent this round, and what the pass brings back
+    // becomes the citable Source pool for the NEXT round's prompt. That keeps
+    // round latency flat while still grounding the citations. See
+    // docs/adr/0003-grounded-inline-citations.md.
+    //
+    // It is started ONCE, outside the retry loop, and it only fetches: a round
+    // that 404s and retries must not fire a second pass or record its findings
+    // twice. Its result is folded in after the engine leg lands.
+    const evidenceTeam = team ?? (await getTeam().catch(() => null));
+    const evidenceFetch = evidenceTeam
+      ? fetchEvidence(client, evidenceTeam.evidenceOrchestrator.id, c, {
+          onStaleAgent: async (oldId) => {
+            if (!team || team.evidenceOrchestrator.id !== oldId) return;
+            const fresh = await recreateAgent(client, team, "evidenceOrchestrator");
+            return fresh.id;
+          },
+        })
+      : Promise.resolve(null);
+
+    let result: Awaited<ReturnType<typeof runRound>> | undefined;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 4 && !result; attempt++) {
+      const t = team ?? (await getTeam().catch(() => null));
+      const agentId = t ? t.hypothesisEngine.id : await getHypothesisEngineId();
+      try {
+        // onStaleAgent: if send 404s repeatedly (agent created in an earlier
+        // platform window), recreate the hypothesis engine in the current
+        // window and send to the fresh id. Returns the fresh agentId.
+        const onStaleAgent = async (oldId: string): Promise<string | void> => {
+          if (!team) return;
+          if (team.hypothesisEngine.id !== oldId) return team.hypothesisEngine.id;
+          const fresh = await recreateAgent(client, team, "hypothesisEngine");
+          return fresh.id;
+        };
+        result = await runRound(client, agentId, c, { onStaleAgent });
+      } catch (e) {
+        lastErr = e;
+        if (!/404 page not found|404/i.test((e as Error).message || "")) throw e;
+        console.log(`[arbor] round 404'd (attempt ${attempt + 1}/4) — recreating hypothesis engine and retrying...`);
+        c.round -= 1; // undo runRound's top-of-function increment before retry
+        try { if (team) await recreateAgent(client, team, "hypothesisEngine"); }
+        catch (re) { console.log(`[arbor] recreate also 404'd (platform down window); will retry...`); }
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    }
+    if (!result) throw lastErr;
+    // Fold in whatever the experts found. `fetchEvidence` never rejects, so
+    // this cannot fail the round: at worst the round is simply ungrounded.
+    applyEvidence(c, await evidenceFetch);
     // Apply the decision's effects.
     if (result.decision.kind === "converged") {
       setWorkingDiagnosis(c, result.decision.hypothesisId, result.decision.confidence, result.message);
@@ -215,7 +315,8 @@ app.post("/api/cases/:id/treat", async (req, res) => {
     return;
   }
   try {
-    const plan = await buildTreatmentPlan(client, team.treatmentPlanner.id, c);
+    const t = await getTeam();
+    const plan = await buildTreatmentPlan(client, t.treatmentPlanner.id, c);
     store.update(c.id, () => {});
     emit(c.id, { kind: "treatment", payload: plan });
     res.json(store.snapshot(c.id));
@@ -240,15 +341,30 @@ app.post("/api/cases/:id/chat", async (req, res) => {
   }
   try {
     const prompt = `CASE: ${summarize(c)}\n\nCLINICIAN QUESTION: ${body.message}\n\nAnswer concisely as decision support, referencing the current differential where relevant. Do not state diagnoses as certain.`;
+    const ct = await getTeam();
+    // Use the reliable send (as runRound does): the dev-weu gateway often
+    // returns the answer on the polled task rather than on the send response,
+    // so a plain sendMessage frequently yielded an empty reply.
     const resp = await withRetry(() =>
-      client.sendMessage(team.hypothesisEngine.id, {
+      client.sendMessageReliable(ct.hypothesisEngine.id, {
         message: { role: "ROLE_USER", parts: [{ kind: "text", text: prompt }] },
       }),
     );
+    // Same three-way extraction as the round: direct message, then the task's
+    // status message, then its artifacts.
     const text =
-      (resp.message?.parts || []).map((p: { text?: string }) => p.text || "").join("\n").trim() ||
-      textOf(resp.task?.status?.message);
+      partsText(resp.message) ||
+      partsText(resp.task?.status?.message) ||
+      (resp.task?.artifacts || [])
+        .flatMap((a: { parts?: { text?: string }[] }) => (a.parts || []).map((p) => p.text || ""))
+        .filter(Boolean)
+        .join("\n")
+        .trim();
     store.update(c.id, () => {});
+    if (!text) {
+      res.status(502).json({ error: "the engine returned an empty answer — try asking again" });
+      return;
+    }
     res.json({ reply: text });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
@@ -264,9 +380,12 @@ function summarize(c: Case): string {
   return `${c.presentation.chiefComplaint}. Live differential: ${live || "(none yet)"}. Findings: ${c.findings.map((f) => f.summary).join("; ") || "(none)"}`;
 }
 
-function textOf(msg: unknown): string {
-  const m = msg as { status?: { message?: { parts?: { text?: string }[] } } };
-  return (m?.status?.message?.parts || []).map((p) => p.text || "").join("").trim();
+/** Join the text parts of an A2A message. The previous helper took a message
+ *  but indexed it as if it were a task (`status.message.parts`), so the chat
+ *  fallback always resolved to "" and the answer bubble rendered empty. */
+function partsText(msg: unknown): string {
+  const m = msg as { parts?: { text?: string }[] } | undefined;
+  return (m?.parts || []).map((p) => p.text || "").join("\n").trim();
 }
 
 // ---- SSE live stream ------------------------------------------------------
@@ -304,16 +423,33 @@ app.get("/api/cases/:id/stream", (req, res) => {
 async function main() {
   client = CortiClient.fromEnv();
   console.log("[arbor] Corti client ready (dev-weu).");
-  team = await provisionTeam(client);
+
+  // Start listening IMMEDIATELY so the UI + health endpoint stay up even while
+  // the platform is in a 404 window. Provisioning the team happens in the
+  // background with retries; handlers that need the team await it. (The
+  // dev-weu platform flaps between working and 404 windows on a sub-minute
+  // cadence — booting must not depend on catching a working window.)
   app.listen(PORT, () => {
     console.log(`[arbor] server listening on http://localhost:${PORT}`);
-    console.log(`[arbor] hypothesis engine id: ${team.hypothesisEngine.id}`);
   });
+
+  // Provision the team in the background, retrying across platform 404 windows.
+  teamPromise = provisionTeam(client)
+    .then((t) => {
+      team = t;
+      console.log(`[arbor] team ready. hypothesis engine id: ${t.hypothesisEngine.id}`);
+      return t;
+    })
+    .catch((e) => {
+      console.error("[arbor] initial team provision failed:", (e as Error).message);
+      teamPromise = null; // allow getTeam to retry on demand
+      throw e;
+    });
 
   const shutdown = async (sig: string) => {
     console.log(`\n[arbor] ${sig} received, tearing down…`);
     try {
-      await teardownTeam(client, team);
+      if (team) await teardownTeam(client, team);
     } catch (e) {
       console.warn("[arbor] teardown error:", (e as Error).message);
     }
