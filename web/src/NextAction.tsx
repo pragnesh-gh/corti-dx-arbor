@@ -13,6 +13,7 @@
 import { useEffect, useState } from "react";
 import type { Case } from "./types.js";
 import * as api from "./api.js";
+import { demoSuggestions, intentLabel, type DemoSuggestion } from "./demoSuggestions.js";
 
 interface Props {
   c: Case;
@@ -108,18 +109,22 @@ export function NextAction({ c, onUpdated, busy, setBusy, onNewCase }: Props) {
     }
   }
 
-  /** Enter the test result the gate asked for, then advance a round. */
-  async function addResultAndAdvance() {
-    if (busy || !summary.trim()) return;
+  /** Enter the test result the gate asked for, then advance a round. Takes
+   *  optional overrides so a one-click demo suggestion can fire the same path
+   *  without first populating the form fields. */
+  async function addResultAndAdvance(ov?: Partial<{ summary: string; detail: string; direction: "supports" | "against" | "neutral"; testId: string; hypothesisIds: string[] }>) {
+    const s = (ov?.summary ?? summary).trim();
+    if (busy || !s) return;
     setBusy(true);
     setErr(null);
     try {
       const afterFinding = await api.addFinding(c.id, {
-        summary,
-        detail: detail || undefined,
-        direction,
+        summary: s,
+        detail: ov?.detail || detail || undefined,
+        direction: ov?.direction ?? direction,
         source: "clinician",
-        testId: testId || undefined,
+        testId: ov?.testId || testId || undefined,
+        hypothesisIds: ov?.hypothesisIds,
       });
       const afterAdvance = await api.advance(c.id);
       onUpdated(afterAdvance);
@@ -129,6 +134,22 @@ export function NextAction({ c, onUpdated, busy, setBusy, onNewCase }: Props) {
     } finally {
       setBusy(false);
     }
+  }
+
+  /** One-click a demo suggestion: fill the visible form with its values so the
+   *  clinician sees what's being sent, then fire it into the system. */
+  function applySuggestion(s: DemoSuggestion) {
+    setSummary(s.summary);
+    setDetail(s.detail ?? "");
+    setDirection(s.direction);
+    if (s.testId) setTestId(s.testId);
+    void addResultAndAdvance({
+      summary: s.summary,
+      detail: s.detail,
+      direction: s.direction,
+      testId: s.testId,
+      hypothesisIds: s.hypothesisIds,
+    });
   }
 
   /** Add a free observation/result without advancing (e.g. a side finding). */
@@ -264,6 +285,26 @@ export function NextAction({ c, onUpdated, busy, setBusy, onNewCase }: Props) {
       {c.awaitingHitl && (
         <div className="na-finding">
           <div className="na-finding-head">Enter the test result</div>
+          {/* one-click demo suggestions, classified by what they do */}
+          {demoSuggestions(c).length > 0 && (
+            <div className="demo-suggestions">
+              <div className="demo-suggestions-label label-caps">Try an example result</div>
+              <div className="demo-suggestions-row">
+                {demoSuggestions(c).map((s, i) => (
+                  <button
+                    key={i}
+                    className={`demo-chip ${s.intent}`}
+                    title={intentLabel(s.intent)}
+                    disabled={busy}
+                    onClick={() => applySuggestion(s)}
+                  >
+                    <span className="demo-chip-badge">{s.badge}</span>
+                    <span className="demo-chip-hint">{s.hint}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {proposedTests.length > 0 && (
             <select value={testId} onChange={(e) => setTestId(e.target.value)}>
               {proposedTests.map((t) => (
@@ -295,7 +336,7 @@ export function NextAction({ c, onUpdated, busy, setBusy, onNewCase }: Props) {
             </label>
           </div>
           <div className="na-finding-actions">
-            <button onClick={addResultAndAdvance} disabled={busy || !summary.trim()}>
+            <button onClick={() => addResultAndAdvance()} disabled={busy || !summary.trim()}>
               {busy ? <span className="spinner" /> : null} Add result &amp; advance
             </button>
             <button className="ghost" onClick={addFindingOnly} disabled={busy || !summary.trim()}>

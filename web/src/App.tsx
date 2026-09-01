@@ -142,13 +142,32 @@ export function App() {
     go("home");
   }
 
+  // Side-nav section click: scroll the matching workspace pane into view and
+  // briefly highlight it, so the Diagnostics / Evidence / Treatment anchors
+  // actually do something. The panes are side-by-side; on a narrow viewport
+  // this brings the chosen one into the center.
+  function scrollToSection(s: string) {
+    setSection(s);
+    const id =
+      s === "evidence" ? "pane-evidence"
+        : s === "treatment" ? "pane-treatment"
+          : "pane-diagnostics";
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    el.classList.remove("pane-flash");
+    // force reflow so the animation restarts on repeat clicks
+    void el.offsetWidth;
+    el.classList.add("pane-flash");
+  }
+
   const inCase = view === "workspace" || view === "tutorial";
   // For the tutorial, use the first canned snapshot's identity in the side-nav
   // (the name/location don't change across steps; the live `c` is null there).
   const shellCase = view === "tutorial" ? TUTORIAL_STEPS[0]!.case : c;
 
   return (
-    <AppShell view={view} c={inCase ? shellCase : null} onGo={go} onNewCase={newCase} section={section} onSection={setSection}>
+    <AppShell view={view} c={inCase ? shellCase : null} onGo={go} onNewCase={newCase} section={section} onSection={scrollToSection}>
       {view === "docs" ? (
         <Docs />
       ) : view === "tutorial" ? (
@@ -158,7 +177,7 @@ export function App() {
         />
       ) : view === "workspace" && c ? (
         <div className="workspace">
-          <aside className="pane left">
+          <aside className="pane left" id="pane-evidence">
             <NextAction
               c={c}
               onUpdated={setCase}
@@ -169,7 +188,7 @@ export function App() {
             <div className="na-divider" />
             <EvidencePanel c={c} />
           </aside>
-          <main className="pane center" style={{ display: "flex", flexDirection: "column" }}>
+          <main className="pane center" id="pane-diagnostics" style={{ display: "flex", flexDirection: "column" }}>
             <div className="center-head">
               <h3>Reasoning tree</h3>
               <div className="view-toggle">
@@ -194,7 +213,7 @@ export function App() {
             )}
             <Timeline c={c} />
           </main>
-          <aside className="pane right">
+          <aside className="pane right" id="pane-treatment">
             <DetailPanel
               c={c}
               selectedId={selectedId}

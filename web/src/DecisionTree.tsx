@@ -1,45 +1,62 @@
 /**
- * DecisionTree — the headline visualization: a retraceable tree of hypotheses,
- * rendered on a Clinical Precision "diagnostic canvas".
+ * DecisionTree — the headline visualization: a retraceable tree of hypotheses
+ * on a Clinical Precision diagnostic canvas.
  *
- * Hybrid canvas (per the UI revamp): a dotted-grid canvas background with
- * organic cubic-bezier SVG connectors and Stitch-style node cards — but nodes
- * are auto-laid-out as our tidy tree (not freely draggable). This keeps Arbor's
- * retraceability (ruled-out branches stay, dimmed) while taking the Stitch
- * canvas aesthetic.
+ * The canvas is a real, draggable surface (per user feedback):
+ *   - Drag any node to reposition it. Positions are kept in a per-case store, so
+ *     when you advance a round the engine preserves every existing node where
+ *     you left it and only computes initial positions for *new* children,
+ *     animating them in from their parent.
+ *   - A "Reset layout" button re-tidies the whole tree if it gets messy.
+ *   - Edge labels (the finding that caused a branch) render as small chips on
+ *     the edge midpoint, so they never overlap the connector line.
  *
- * - Nodes are hypotheses, positioned left-to-right by depth (presentation →
- *   top differential → branches).
- * - Node size scales with probability; color encodes status (live = blue,
- *   branched = slate, confirmed = green, ruled_out = dimmed grey, struck
- *   through).
- * - The leading live hypothesis gets the Stitch "focus" treatment (primary
- *   fill, on-primary text, confidence % badge).
- * - Edges are organic curves labelled with the finding that caused the branch.
+ * Nodes are HTML cards (foreignObject) so the hypothesis name wraps fully and
+ * the card grows to fit the text — no more "Lyme disease with musculo…"
+ * truncation. Color encodes status (live = blue, branched = slate, confirmed =
+ * green, ruled_out = dimmed + struck through); the leading live hypothesis gets
+ * the primary "focus" fill. Ruled-out branches stay on the canvas (retraceable).
  */
 
-import { useMemo } from "react";
-import type { Case, Finding, Hypothesis } from "./types.js";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Case, Hypothesis } from "./types.js";
 
 interface LayoutNode {
   h: Hypothesis;
   x: number;
   y: number;
   depth: number;
-  radius: number;
   parent?: LayoutNode;
   edgeLabel?: string;
+  isNew?: boolean;
 }
 
-const NODE_W = 220;
-const NODE_H = 64;
-const GAP_X = 150;
-const GAP_Y = 18;
+/** Min node size; cards grow wider/taller to fit their text (foreignObject). */
+const NODE_W = 240;
+const NODE_H = 72;
+const GAP_X = 160;
+const GAP_Y = 28;
 
-/** Tidy tree layout: assign x by depth, y by in-order leaf position. */
-function layout(c: Case): { nodes: LayoutNode[]; width: number; height: number } {
+/* ------------------------------------------------------------------ *
+ * Per-case position store.
+ *
+ * Positions are keyed by hypothesis id, nested under the case id, so dragging
+ * in one case doesn't bleed into another and a brand-new case starts clean.
+ * On a round advance the case object changes but the ids of surviving nodes
+ * stay stable, so the engine's layout merges preserved positions for existing
+ * nodes with computed positions for new ones.
+ * ------------------------------------------------------------------ */
+const positionsByCase: Record<string, Record<string, { x: number; y: number }>> = {};
+
+function getPositions(caseId: string): Record<string, { x: number; y: number }> {
+  if (!positionsByCase[caseId]) positionsByCase[caseId] = {};
+  return positionsByCase[caseId];
+}
+
+/** Tidy tree layout: assign x by depth, y by in-order leaf position. Only used
+ *  for the initial layout and the "Reset" action. */
+function tidyLayout(c: Case): { nodes: LayoutNode[]; width: number; height: number } {
   const nodes: LayoutNode[] = [];
-  // Build a virtual root for the presentation.
   const presentationNode: LayoutNode = {
     h: {
       id: "__root__",
@@ -57,7 +74,6 @@ function layout(c: Case): { nodes: LayoutNode[]; width: number; height: number }
     x: 0,
     y: 0,
     depth: 0,
-    radius: 0,
   };
 
   let maxDepth = 0;
@@ -68,7 +84,6 @@ function layout(c: Case): { nodes: LayoutNode[]; width: number; height: number }
     maxDepth = Math.max(maxDepth, depth);
     const childIds = ln.h.childIds;
     if (!childIds.length) {
-      // leaf
       ln.y = leafIdx * (NODE_H + GAP_Y);
       leafIdx += 1;
       nodes.push(ln);
@@ -78,12 +93,11 @@ function layout(c: Case): { nodes: LayoutNode[]; width: number; height: number }
       .map((id) => c.hypotheses[id])
       .filter((x): x is Hypothesis => !!x)
       .sort((a, b) => b.probability - a.probability)
-      .map((h) => ({ h, x: 0, y: 0, depth: depth + 1, radius: 0, parent: ln }) as LayoutNode);
+      .map((h) => ({ h, x: 0, y: 0, depth: depth + 1, parent: ln }) as LayoutNode);
     for (const ch of children) {
       ch.edgeLabel = ch.h.branchedBecause || undefined;
       assign(ch, depth + 1);
     }
-    // center the parent over its children
     const first = children[0];
     const last = children[children.length - 1];
     if (first && last) ln.y = (first.y + last.y) / 2;
@@ -91,30 +105,53 @@ function layout(c: Case): { nodes: LayoutNode[]; width: number; height: number }
   };
   assign(presentationNode, 0);
 
-  // x by depth
   for (const n of nodes) n.x = n.depth * (NODE_W + GAP_X);
-
   const width = maxDepth * (NODE_W + GAP_X) + NODE_W;
   const height = Math.max(leafIdx * (NODE_H + GAP_Y), 400);
   return { nodes, width, height };
 }
 
-/** White-theme palette: soft tinted fills with dark text, so nodes read on a
- *  white canvas while still encoding status by hue. Strong stroke carries the
- *  color identity; the fill is a light tint of the same hue. */
-function statusColor(h: Hypothesis): { fill: string; stroke: string; text: string; dim: boolean; focus: boolean } {
-  if (h.id === "__root__") return { fill: "#00478d", stroke: "#00478d", text: "#ffffff", dim: false, focus: false };
+/** Build the render layout, merging preserved drag positions (for existing
+ *  nodes) with tidy positions (for new nodes). Marks new nodes so they can
+ *  animate in. */
+function buildLayout(c: Case): { nodes: LayoutNode[]; width: number; height: number } {
+  const tidy = tidyLayout(c);
+  const stored = getPositions(c.id);
+  const seen = new Set<string>();
+  const nodes = tidy.nodes.map((n) => {
+    const id = n.h.id;
+    seen.add(id);
+    const prev = stored[id];
+    if (prev) {
+      // preserved position — keep where the user left it
+      return { ...n, x: prev.x, y: prev.y, isNew: false };
+    }
+    // new node (not in the store) — use tidy position, mark for animation
+    stored[id] = { x: n.x, y: n.y };
+    return { ...n, isNew: true };
+  });
+  // prune stored positions for nodes that no longer exist
+  for (const id of Object.keys(stored)) if (!seen.has(id)) delete stored[id];
+
+  // bounds from actual (possibly dragged) positions
+  let maxX = 0, maxY = 0;
+  for (const n of nodes) { maxX = Math.max(maxX, n.x + NODE_W); maxY = Math.max(maxY, n.y + NODE_H); }
+  return { nodes, width: Math.max(maxX + 80, 600), height: Math.max(maxY + 80, 400) };
+}
+
+function statusColor(h: Hypothesis): { fill: string; stroke: string; text: string; dim: boolean } {
+  if (h.id === "__root__") return { fill: "#00478d", stroke: "#00478d", text: "#ffffff", dim: false };
   switch (h.status) {
     case "confirmed":
-      return { fill: "#d1fae5", stroke: "#047857", text: "#065f46", dim: false, focus: false };
+      return { fill: "#d1fae5", stroke: "#047857", text: "#065f46", dim: false };
     case "live":
-      return { fill: "#d6e3ff", stroke: "#00478d", text: "#001b3d", dim: false, focus: false };
+      return { fill: "#d6e3ff", stroke: "#00478d", text: "#001b3d", dim: false };
     case "branched":
-      return { fill: "#d0e1fb", stroke: "#505f76", text: "#38485d", dim: false, focus: false };
+      return { fill: "#d0e1fb", stroke: "#505f76", text: "#38485d", dim: false };
     case "ruled_out":
-      return { fill: "#f2f3ff", stroke: "#c2c6d4", text: "#727783", dim: true, focus: false };
+      return { fill: "#f2f3ff", stroke: "#c2c6d4", text: "#727783", dim: true };
     default:
-      return { fill: "#f2f3ff", stroke: "#c2c6d4", text: "#424752", dim: false, focus: false };
+      return { fill: "#f2f3ff", stroke: "#c2c6d4", text: "#424752", dim: false };
   }
 }
 
@@ -125,12 +162,9 @@ interface Props {
 }
 
 export function DecisionTree({ c, selectedId, onSelect }: Props) {
-  const { nodes, width, height } = useMemo(() => layout(c), [c]);
-  const findingsById = useMemo(() => {
-    const m: Record<string, Finding> = {};
-    for (const f of c.findings) m[f.id] = f;
-    return m;
-  }, [c.findings]);
+  // recompute layout when the case identity or its node set changes
+  const layoutKey = c.id + ":" + Object.keys(c.hypotheses).join(",") + ":" + c.round;
+  const { nodes, width, height } = useMemo(() => buildLayout(c), [layoutKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const zebra = (h: Hypothesis) => h.isZebra;
   const topLive = Object.values(c.hypotheses)
@@ -138,17 +172,80 @@ export function DecisionTree({ c, selectedId, onSelect }: Props) {
     .sort((a, b) => b.probability - a.probability)[0];
   const topLiveId = topLive?.id;
 
+  // ---- drag state ----
+  const [dragId, setDragId] = useState<string | null>(null);
+  const dragOffset = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  function onPointerDown(e: React.PointerEvent, n: LayoutNode) {
+    if (n.h.id === "__root__") return;
+    e.stopPropagation();
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+    const svg = svgRef.current;
+    if (svg) {
+      const pt = svg.createSVGPoint();
+      pt.x = e.clientX; pt.y = e.clientY;
+      const ctm = svg.getScreenCTM();
+      const loc = ctm ? pt.matrixTransform(ctm.inverse()) : { x: e.clientX, y: e.clientY };
+      dragOffset.current = { dx: loc.x - n.x, dy: loc.y - n.y };
+    }
+    dragMoved = false; // reset per press; a real move sets it true
+    setDragId(n.h.id);
+  }
+  function onPointerMove(e: React.PointerEvent) {
+    if (!dragId) return;
+    const svg = svgRef.current;
+    if (!svg) return;
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    const ctm = svg.getScreenCTM();
+    const loc = ctm ? pt.matrixTransform(ctm.inverse()) : { x: e.clientX, y: e.clientY };
+    dragMoved = true; // this press included movement → suppress the click-select
+    const stored = getPositions(c.id);
+    stored[dragId] = { x: loc.x - dragOffset.current.dx, y: loc.y - dragOffset.current.dy };
+    // force a re-render by bumping a counter via state
+    setTick((t) => t + 1);
+  }
+  function onPointerUp() {
+    setDragId(null);
+  }
+  const [, setTick] = useState(0);
+
+  function resetLayout() {
+    delete positionsByCase[c.id];
+    setTick((t) => t + 1);
+  }
+
+  // clear stale positions when switching to a different case entirely
+  useEffect(() => {
+    // ensure the store exists; no-op if already present
+    getPositions(c.id);
+  }, [c.id]);
+
   return (
     <div className="tree-scroll canvas-bg">
-      <svg width={Math.max(width, 600)} height={height} style={{ minWidth: "100%" }}>
-        {/* organic connectors (drawn first, behind nodes) */}
+      <div className="canvas-toolbar">
+        <span className="label-caps">Drag nodes to arrange · positions are kept when you advance a round</span>
+        <button className="ghost" onClick={resetLayout}>Reset layout</button>
+      </div>
+      <svg
+        ref={svgRef}
+        width={Math.max(width, 600)}
+        height={height}
+        style={{ minWidth: "100%" }}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerUp}
+      >
+        {/* organic connectors (behind nodes) */}
         {nodes.map((n) => {
           if (!n.parent) return null;
           const p = n.parent;
           const mx = (p.x + NODE_W + n.x) / 2;
-          // organic cubic — a gentle S-curve between parent right and child left
           const path = `M ${p.x + NODE_W} ${p.y + NODE_H / 2} C ${mx} ${p.y + NODE_H / 2}, ${mx} ${n.y + NODE_H / 2}, ${n.x} ${n.y + NODE_H / 2}`;
           const dim = n.h.status === "ruled_out";
+          const labelX = (p.x + NODE_W + n.x) / 2;
+          const labelY = (p.y + n.y) / 2 + NODE_H / 2;
           return (
             <g key={`edge-${n.h.id}`}>
               <path
@@ -156,24 +253,18 @@ export function DecisionTree({ c, selectedId, onSelect }: Props) {
                 className="organics"
                 strokeWidth={dim ? 1.5 : 2}
                 strokeDasharray={dim ? "4 4" : undefined}
-                opacity={dim ? 0.5 : 0.7}
+                opacity={dim ? 0.45 : 0.7}
               />
               {n.edgeLabel && (
-                <text
-                  x={mx}
-                  y={(p.y + n.y) / 2 + NODE_H / 2}
-                  textAnchor="middle"
-                  className="edge-label"
-                  opacity={dim ? 0.4 : 0.85}
-                >
-                  {truncate(n.edgeLabel, 34)}
-                </text>
+                <foreignObject x={labelX - 70} y={labelY - 12} width={140} height={24} style={{ overflow: "visible" }}>
+                  <div className="edge-chip" title={n.edgeLabel}>{truncate(n.edgeLabel, 28)}</div>
+                </foreignObject>
               )}
             </g>
           );
         })}
 
-        {/* nodes */}
+        {/* nodes — HTML cards via foreignObject so text wraps + card grows */}
         {nodes.map((n) => {
           const col = statusColor(n.h);
           const dim = col.dim;
@@ -182,48 +273,38 @@ export function DecisionTree({ c, selectedId, onSelect }: Props) {
           const isTop = n.h.id === topLiveId;
           const pct = isRoot ? "" : `${(n.h.probability * 100).toFixed(0)}%`;
           const focus = isTop && n.h.status === "live";
+          const dragging = dragId === n.h.id;
           return (
             <g
               key={n.h.id}
               transform={`translate(${n.x}, ${n.y})`}
-              className="tree-node"
-              onClick={() => !isRoot && onSelect(n.h.id)}
-              style={{ cursor: isRoot ? "default" : "pointer" }}
+              className={`tree-node ${n.isNew ? "node-enter" : ""} ${dragging ? "node-dragging" : ""}`}
+              onPointerDown={(e) => onPointerDown(e, n)}
+              onClick={(e) => { if (!isRoot && !dragMoved) { e.stopPropagation(); onSelect(n.h.id); } }}
+              style={{ cursor: isRoot ? "default" : "grab" }}
               opacity={dim ? 0.62 : 1}
             >
-              <rect
-                width={NODE_W}
-                height={NODE_H}
-                rx={focus ? 12 : 8}
-                fill={focus ? "#00478d" : col.fill}
-                stroke={selected ? "#131b2e" : isTop ? "#00478d" : col.stroke}
-                strokeWidth={selected ? 2.5 : isTop ? 2 : 1.25}
-              />
-              <text x={14} y={24} fill={focus ? "#ffffff" : col.text} className="node-title">
-                {truncate(n.h.name, 26)}
-              </text>
-              {!isRoot && (
-                <text x={14} y={45} fill={focus ? "#ffffff" : col.text} className="node-sub" opacity={0.85}>
-                  {pct}
-                  {zebra(n.h) ? "  · zebra" : ""}
-                  {n.h.status === "ruled_out" ? "  · ruled out" : ""}
-                  {n.h.status === "confirmed" ? "  · working dx" : ""}
-                </text>
-              )}
-              {isRoot && (
-                <text x={14} y={44} fill={col.text} className="node-sub" opacity={0.8}>
-                  Presentation
-                </text>
-              )}
-              {/* zebra marker */}
-              {zebra(n.h) && n.h.status === "live" && (
-                <text x={NODE_W - 16} y={24} fill="#b45309" className="zebra-mark" textAnchor="end">
-                  🦓
-                </text>
-              )}
-              {n.h.status === "ruled_out" && (
-                <line x1={12} y1={NODE_H / 2} x2={NODE_W - 12} y2={NODE_H / 2} stroke="#727783" strokeWidth={2} />
-              )}
+              <foreignObject width={NODE_W} height={NODE_H} style={{ overflow: "visible" }}>
+                <div
+                  className={`node-card ${focus ? "focus" : ""} ${selected ? "sel" : ""} ${isRoot ? "root" : ""} ${dim ? "dim" : ""}`}
+                  style={{ borderColor: selected ? "#131b2e" : isTop ? "#00478d" : col.stroke, background: focus ? "#00478d" : col.fill, color: focus ? "#fff" : col.text }}
+                >
+                  <div className="node-card-head">
+                    <span className="node-card-name">{n.h.name}</span>
+                    {zebra(n.h) && n.h.status === "live" && <span className="zebra-mark">🦓</span>}
+                  </div>
+                  {!isRoot && (
+                    <div className="node-card-sub">
+                      <span className="data-mono">{pct}</span>
+                      {zebra(n.h) ? " · zebra" : ""}
+                      {n.h.status === "ruled_out" ? " · ruled out" : ""}
+                      {n.h.status === "confirmed" ? " · working dx" : ""}
+                    </div>
+                  )}
+                  {isRoot && <div className="node-card-sub">Presentation</div>}
+                  {n.h.status === "ruled_out" && <div className="node-strike" />}
+                </div>
+              </foreignObject>
             </g>
           );
         })}
@@ -239,6 +320,11 @@ export function DecisionTree({ c, selectedId, onSelect }: Props) {
     </div>
   );
 }
+
+// track whether a pointer move happened during the drag, so a click at the end
+// of a drag doesn't also select the node. Reset to false in onPointerDown; set
+// true in onPointerMove; read in the node's onClick guard.
+let dragMoved = false;
 
 function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;

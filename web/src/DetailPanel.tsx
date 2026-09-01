@@ -3,8 +3,13 @@
  * base-rate, discriminating tests) and show the verdict + treatment plan.
  */
 
+import { useState } from "react";
 import type { Case, Finding, Hypothesis } from "./types.js";
 import * as api from "./api.js";
+
+/** Long descriptions are clamped to a few lines with a "show more" toggle so
+ *  the panel stays scannable; the full text is one click away. */
+const DESC_CLAMP_LINES = 3;
 
 interface Props {
   c: Case;
@@ -25,6 +30,7 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy, interacti
   const h: Hypothesis | undefined = selectedId ? c.hypotheses[selectedId] : undefined;
   const findingsById: Record<string, Finding> = {};
   for (const f of c.findings) findingsById[f.id] = f;
+  const [descOpen, setDescOpen] = useState(false);
 
   // Discoverability for "Set working dx": when reasoning and there is a leading
   // live hypothesis, surface the action where the user is looking at it. This
@@ -126,7 +132,14 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy, interacti
             <h3>{h.name}</h3>
             <span className={`status-chip ${h.status}`}>{h.status}</span>
           </div>
-          {h.description && <p>{h.description}</p>}
+          {h.description && (
+            <p className={`hypo-desc ${descOpen ? "open" : "clamp"}`}>
+              {h.description}
+              <button className="desc-toggle" onClick={() => setDescOpen((v) => !v)}>
+                {descOpen ? "show less" : "show more"}
+              </button>
+            </p>
+          )}
           <div className="prob-line">
             probability <b>{(h.probability * 100).toFixed(0)}%</b>
             {h.isZebra && <span className="zebra-tag">🦓 zebra</span>}

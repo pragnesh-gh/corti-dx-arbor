@@ -179,6 +179,13 @@ body { background: var(--surface); color: var(--on-surface); }
 .shell-body { flex: 1; display: flex; overflow: hidden; }
 .workspace { flex: 1; display: grid; grid-template-columns: 320px 1fr 360px; gap: 0; overflow: hidden; }
 .pane { overflow-y: auto; }
+/* brief highlight when a side-nav anchor scrolls a pane into view */
+.pane-flash { animation: paneFlash 0.9s ease-out; }
+@keyframes paneFlash {
+  0%   { box-shadow: inset 0 0 0 0 transparent; }
+  30%  { box-shadow: inset 0 0 0 3px var(--primary); }
+  100% { box-shadow: inset 0 0 0 0 transparent; }
+}
 .pane.left { border-right: 1px solid var(--outline-variant); background: var(--surface-container-low); }
 .pane.right { border-left: 1px solid var(--outline-variant); background: var(--surface-container-low); display: flex; flex-direction: column; }
 .pane.center { background: var(--surface); display: flex; flex-direction: column; }
@@ -300,14 +307,70 @@ button.ghost:hover:not(:disabled) { background: var(--surface-container-low); bo
   background-image: radial-gradient(var(--outline-variant) 1px, transparent 1px);
   background-size: 20px 20px;
 }
-.tree-scroll { flex: 1; overflow: auto; padding: 8px 18px 18px; }
-.tree-node rect { transition: all 0.2s; }
-.tree-node:hover rect { filter: brightness(0.98); }
-.node-title { font-size: 13px; font-weight: 600; }
-.node-sub { font-size: 11px; font-feature-settings: "tnum" 1; }
-.edge-label { font-size: 10px; fill: var(--on-surface-variant); }
+.tree-scroll { flex: 1; overflow: auto; padding: 8px 18px 18px; position: relative; }
+
+/* canvas toolbar (hint + reset) */
+.canvas-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 2px 10px; gap: 12px;
+}
+.canvas-toolbar .label-caps { font-size: 11px; }
+
+/* node cards (HTML via foreignObject — wrap + grow to fit text) */
+.tree-node { /* the <g> wrapper */ }
+.tree-node:hover .node-card { filter: brightness(0.98); }
+.node-card {
+  box-sizing: border-box; width: 100%; min-height: 56px;
+  padding: 8px 12px; border-radius: var(--r-lg);
+  border: 1.5px solid var(--outline-variant);
+  background: var(--surface-container-lowest);
+  display: flex; flex-direction: column; gap: 2px;
+  transition: transform 0.15s, box-shadow 0.15s;
+  user-select: none;
+}
+.node-card.sel { box-shadow: 0 0 0 2px var(--on-surface); }
+.node-card.focus { box-shadow: 0 4px 14px rgba(0, 71, 141, 0.28); }
+.node-card.root { border-style: solid; }
+.node-card.dim { opacity: 0.85; }
+.node-card-head { display: flex; align-items: flex-start; gap: 6px; }
+.node-card-name {
+  font-size: 13px; font-weight: 600; line-height: 1.25;
+  /* allow wrapping so the full hypothesis name always shows */
+  overflow-wrap: anywhere; word-break: break-word;
+}
+.node-card-sub {
+  font-size: 11px; font-feature-settings: "tnum" 1; color: var(--on-surface-variant);
+  margin-top: 1px;
+}
+.node-card.focus .node-card-sub { color: rgba(255, 255, 255, 0.85); }
+.node-strike {
+  position: absolute; left: 8px; right: 8px; top: 50%;
+  height: 1.5px; background: var(--outline); opacity: 0.7;
+}
+.node-card { position: relative; }
+.tree-node.node-dragging .node-card { box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22); transform: scale(1.02); }
+
+/* new-node entry animation */
+.node-enter { animation: nodeEnter 0.42s cubic-bezier(0.2, 0.8, 0.2, 1); transform-origin: center; }
+@keyframes nodeEnter {
+  0%   { opacity: 0; transform: scale(0.7); }
+  60%  { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* edge label chip (sits on the connector midpoint, never overlapping the line) */
+.edge-chip {
+  display: inline-block; max-width: 140px;
+  padding: 2px 8px; border-radius: var(--r-full);
+  background: var(--surface-container-lowest); color: var(--on-surface-variant);
+  border: 1px solid var(--outline-variant);
+  font-size: 10px; font-weight: 600; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
 .organics { fill: none; stroke: var(--primary); stroke-width: 1.5; opacity: 0.6; }
-.zebra-mark { font-size: 16px; }
+.zebra-mark { font-size: 16px; flex-shrink: 0; }
 .legend {
   display: flex; gap: 16px; flex-wrap: wrap; padding: 10px 4px 0;
   font-size: 11px; color: var(--on-surface-variant);
@@ -318,11 +381,18 @@ button.ghost:hover:not(:disabled) { background: var(--surface-container-low); bo
 /* chat */
 .chat-panel { display: flex; flex-direction: column; border-bottom: 1px solid var(--outline-variant); max-height: 46%; }
 .chat-stream { padding: 4px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; max-height: 220px; }
+.chat-section-label { margin: 6px 2px 2px; color: var(--outline); }
 .msg { padding: 8px 10px; border-radius: var(--r-sm); font-size: 13px; background: var(--surface-container-lowest); border: 1px solid var(--outline-variant); }
 .msg-role { font-size: 11px; text-transform: uppercase; color: var(--outline); margin-bottom: 2px; letter-spacing: 0.05em; }
 .msg.engine_message { border-left: 3px solid var(--primary); }
 .msg.diagnosis { border-left: 3px solid var(--confirmed); background: var(--surface-container-low); }
 .msg.treatment { border-left: 3px solid var(--branched); }
+/* Q&A thread: echo the question + pair the answer beneath it */
+.qa-pair { display: flex; flex-direction: column; gap: 4px; }
+.msg.you { background: var(--surface-container); border-left: 3px solid var(--outline); align-self: flex-end; max-width: 92%; }
+.msg.answer { align-self: flex-start; max-width: 96%; }
+.msg-body { white-space: pre-wrap; line-height: 1.4; }
+.msg.pending .msg-body { display: flex; align-items: center; gap: 8px; color: var(--on-surface-variant); font-style: italic; }
 .chat-actions { display: flex; gap: 8px; padding: 8px 14px; flex-wrap: wrap; align-items: center; }
 .slow-hint { line-height: 1.35; }
 .chat-input { display: flex; gap: 8px; padding: 0 14px 12px; }
@@ -335,6 +405,17 @@ button.ghost:hover:not(:disabled) { background: var(--surface-container-low); bo
 /* detail panel */
 .detail-panel { padding: 0 0 16px; flex: 1; overflow-y: auto; }
 .hypo-detail { margin: 0 12px; padding: 12px; background: var(--surface-container-lowest); border: 1px solid var(--outline-variant); border-radius: var(--r-lg); }
+.hypo-desc { margin: 8px 0; font-size: 13px; line-height: 1.45; color: var(--on-surface-variant); }
+.hypo-desc.clamp {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.hypo-desc.open { display: block; }
+.desc-toggle {
+  display: inline-block; margin-left: 6px; background: none; border: none;
+  color: var(--primary); font-size: 12px; font-weight: 700; cursor: pointer;
+  padding: 0; text-decoration: underline;
+}
 .hypo-detail .prob-line { margin: 8px 0; font-size: 13px; font-feature-settings: "tnum" 1; }
 .zebra-tag { background: var(--hitl-container); color: var(--hitl); padding: 1px 8px; border-radius: var(--r-full); font-size: 11px; margin-left: 6px; }
 .baserate, .codes, .ev-block { margin-top: 10px; font-size: 13px; }
@@ -428,6 +509,27 @@ button.ghost:hover:not(:disabled) { background: var(--surface-container-low); bo
 .na-finding input:focus, .na-finding select:focus { border-color: var(--primary); border-width: 2px; padding: 6px 8px; }
 .na-finding-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .slow-hint { line-height: 1.35; }
+
+/* ---- HITL demo suggestions (one-click example results) ---- */
+.demo-suggestions { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+.demo-suggestions-label { color: var(--outline); }
+.demo-suggestions-row { display: flex; flex-direction: column; gap: 6px; }
+.demo-chip {
+  display: flex; flex-direction: column; gap: 2px; text-align: left;
+  padding: 8px 10px; border-radius: var(--r-md); cursor: pointer;
+  background: var(--surface-container-low); border: 1px solid var(--outline-variant);
+  color: var(--on-surface); font-size: 12px; line-height: 1.3; transition: all 0.15s;
+}
+.demo-chip:hover { border-color: var(--primary); background: var(--surface-container); }
+.demo-chip:disabled { opacity: 0.55; cursor: default; }
+.demo-chip-badge {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  padding: 1px 7px; border-radius: var(--r-full); align-self: flex-start;
+}
+.demo-chip.horse .demo-chip-badge { background: var(--primary); color: #fff; }
+.demo-chip.zebra .demo-chip-badge { background: var(--hitl-container); color: var(--hitl); border: 1px solid var(--hitl); }
+.demo-chip.against .demo-chip-badge { background: var(--error-container); color: var(--error); border: 1px solid var(--error); }
+.demo-chip-hint { color: var(--on-surface-variant); }
 
 /* ---- Tutorial ---- */
 .scenario-card.tutorial-card {
@@ -524,11 +626,13 @@ button.ghost:hover:not(:disabled) { background: var(--surface-container-low); bo
 
 /* ---- converge hint in detail panel ---- */
 .converge-hint {
-  display: flex; gap: 12px; align-items: center; justify-content: space-between;
-  margin: 12px; padding: 10px 12px; background: var(--hitl-container);
-  border: 1px solid var(--hitl); border-radius: var(--r-lg);
+  display: flex; flex-direction: column; gap: 12px; align-items: stretch;
+  margin: 12px; padding: 18px 16px; min-height: 96px;
+  background: var(--hitl-container); border: 1px solid var(--hitl); border-radius: var(--r-lg);
 }
+.converge-hint-text { min-height: 0; }
 .converge-hint-text p { margin: 4px 0 0; }
+.converge-hint button { white-space: nowrap; align-self: stretch; }
 
 /* ---- docs ---- */
 .docs-layout { display: grid; grid-template-columns: 240px 1fr; height: calc(100vh - 64px); overflow: hidden; }

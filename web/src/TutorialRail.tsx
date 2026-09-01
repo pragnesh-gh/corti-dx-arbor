@@ -11,6 +11,7 @@
  */
 
 import { TUTORIAL_STEPS } from "./tutorialCase.js";
+import { demoSuggestions, intentLabel } from "./demoSuggestions.js";
 
 interface Props {
   step: number;
@@ -23,6 +24,7 @@ export function TutorialRail({ step, onStep, onExitToLive }: Props) {
   const total = TUTORIAL_STEPS.length;
   const isLast = step === total - 1;
   const isGate = s.spotlight === "hitl-gate";
+  const suggestions = demoSuggestions(s.case);
 
   const cue =
     s.spotlight === "presentation"
@@ -66,6 +68,26 @@ export function TutorialRail({ step, onStep, onExitToLive }: Props) {
           {cue && <div className="tut-cue">👉 {cue}</div>}
         </div>
       </div>
+
+      {/* at the gate, show the one-click example results the live gate offers */}
+      {isGate && suggestions.length > 0 && (
+        <div className="demo-suggestions">
+          <div className="demo-suggestions-label label-caps">Example results (live gate fires these in one click)</div>
+          <div className="demo-suggestions-row">
+            {suggestions.map((sg, i) => (
+              <button
+                key={i}
+                className={`demo-chip ${sg.intent}`}
+                title={intentLabel(sg.intent)}
+                onClick={() => onStep(step + 1)}
+              >
+                <span className="demo-chip-badge">{sg.badge}</span>
+                <span className="demo-chip-hint">{sg.hint}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* step actions */}
       <div className="na-actions">
