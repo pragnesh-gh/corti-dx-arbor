@@ -29,7 +29,19 @@ hypothesis engine and the evidence orchestrator **in parallel**. The
 orchestrator's returned sources land immediately as Findings *and* are carried
 into the **next** round's hypothesis prompt as a citable pool.
 
-**3. Unresolvable markers are stripped server-side**, never rendered.
+**3. Only the evidence pass may add a Source.** The hypothesis engine is given
+the pool as a read-only list and can cite it by ref (`[S3]`), but its response
+has no `sources` field: a ref it invents resolves to nothing. A source the
+experts did not return does not exist.
+
+**4. Unresolvable markers are stripped server-side and logged**, never
+rendered. The log line is the only signal that a model is fabricating refs.
+
+**5. Fetch and apply are separate.** `fetchEvidence` talks to the experts and
+mutates nothing; `applyEvidence` folds the result into the Case after the
+engine's own merge. So a retried round cannot fire a second pass or double-record
+its findings, and evidence findings attach to the differential as it *ends* the
+round rather than racing the engine's upserts.
 
 ## Considered options for the evidence pass
 
@@ -53,3 +65,9 @@ into the **next** round's hypothesis prompt as a citable pool.
 - Source indices are stable because the pool is append-only. Never sort,
   compact, or garbage-collect `case.sources[]` — a marker's number would shift
   under a reader who had already cited it.
+- The treatment planner (`treatment.ts`) has no source pool and does not rewrite
+  markers, so its prose renders plain. Wrapping it in `<Cited>` would let a
+  bracketed number resolve to an unrelated paper — worse than no citation.
+- Known gap: `RawSource.identifier` is one flat field, so a paper returned once
+  by DOI and once by PMID does not dedupe. Splitting it into typed fields is the
+  fix when it starts to bite.

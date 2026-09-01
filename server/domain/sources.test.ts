@@ -10,8 +10,10 @@ import {
   citedIndices,
   mergeSources,
   renderSourcePool,
+  resolveRefs,
   rewriteMarkers,
   sourceKey,
+  stripMarkers,
   type Source,
 } from "./sources.js";
 
@@ -167,5 +169,42 @@ describe("the pipelined round contract", () => {
 
   it("tells a round-1 engine there is nothing to cite", () => {
     assert.match(renderSourcePool([]), /No sources gathered yet/);
+  });
+});
+
+describe("resolveRefs", () => {
+  it("resolves case-insensitively, dedupes, and sorts", () => {
+    assert.deepEqual(resolveRefs({ S1: 1, N1: 3 }, ["n1", "S1", "N1"]), [1, 3]);
+  });
+
+  it("drops refs the map has never heard of", () => {
+    assert.deepEqual(resolveRefs({ S1: 1 }, ["S9", "N4"]), []);
+  });
+});
+
+describe("stripMarkers", () => {
+  it("removes every marker without leaving a gap", () => {
+    assert.equal(stripMarkers("Likely PE [S1, S2], consider CTPA [N1]."), "Likely PE, consider CTPA.");
+  });
+
+  it("leaves unmarked prose alone", () => {
+    assert.equal(stripMarkers("Plain narration."), "Plain narration.");
+  });
+});
+
+describe("the engine cannot introduce a source", () => {
+  // ADR 0003: sources come from the evidence experts. The hypothesis engine is
+  // given an identity-only refMap, so anything it invents has nowhere to land.
+  it("gives the engine identity refs only, so an invented ref is stripped", () => {
+    const pool: Source[] = [];
+    mergeSources(pool, [{ ref: "N1", title: "Real paper", url: "https://x.example/real" }], 1);
+
+    const { refMap, added } = mergeSources(pool, undefined, 2);
+    assert.equal(added.length, 0);
+    assert.deepEqual(Object.keys(refMap), ["S1"]);
+    assert.equal(
+      rewriteMarkers("Grounded [S1] but this one is invented [N7].", refMap),
+      "Grounded [1] but this one is invented.",
+    );
   });
 });

@@ -91,9 +91,11 @@ function GroupedFindings({ c, onCite, onSelectHypothesis }: Props) {
     .map((h) => ({ h, findings: c.findings.filter((f) => f.hypothesisIds.includes(h.id)) }))
     .filter((g) => g.findings.length > 0);
 
-  const unattributed = c.findings.filter(
-    (f) => !f.hypothesisIds.some((id) => c.hypotheses[id]),
-  );
+  // Anything the groups above didn't render — unattributed findings, and
+  // findings whose only hypothesis has been branched away. A finding must never
+  // disappear from the view just because its hypothesis moved.
+  const grouped = new Set(groups.flatMap((g) => g.findings.map((f) => f.id)));
+  const ungrouped = c.findings.filter((f) => !grouped.has(f.id));
 
   return (
     <div className="finding-groups">
@@ -110,11 +112,11 @@ function GroupedFindings({ c, onCite, onSelectHypothesis }: Props) {
           onTitleClick={() => onSelectHypothesis?.(g.h.id)}
         />
       ))}
-      {unattributed.length > 0 && (
+      {ungrouped.length > 0 && (
         <FindingGroup
-          title="Not yet attributed"
-          badge={`${unattributed.length}`}
-          findings={unattributed}
+          title="Other findings"
+          badge={`${ungrouped.length}`}
+          findings={ungrouped}
           sources={c.sources}
           defaultOpen={groups.length === 0}
           onCite={onCite}
@@ -200,7 +202,7 @@ function FindingRow({
   onCite?: (index: number) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const expandable = !!(f.detail || f.citation || f.sourceIds?.length);
+  const expandable = !!(f.detail || f.citation || f.sourceIndices?.length);
 
   return (
     <div className={`finding ${f.direction}${open ? " open" : ""}`}>
@@ -226,7 +228,7 @@ function FindingRow({
           }
         >
           <Cited text={f.summary} sources={sources} onCite={onCite} />
-          <SourceChips ids={f.sourceIds} sources={sources} onCite={onCite} />
+          <SourceChips ids={f.sourceIndices} sources={sources} onCite={onCite} />
         </div>
         {open && (
           <div className="finding-expand">

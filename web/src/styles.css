@@ -537,6 +537,10 @@ a.source-title:hover { color: var(--accent); text-decoration: underline; }
 .finding-group .finding + .finding { border-top: 1px solid var(--border); }
 
 .finding-body { min-width: 0; flex: 1 1 auto; }
+.finding-summary {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.finding.open .finding-summary { white-space: normal; }
 .finding-summary.expandable { cursor: pointer; }
 .finding-summary.expandable:hover { color: var(--accent-strong); }
 .finding-expand { margin-top: 4px; display: flex; flex-direction: column; gap: 2px; }

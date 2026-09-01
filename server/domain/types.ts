@@ -100,7 +100,6 @@ export type SourceType =
  * the case carries `[3]`-style markers that index into this pool.
  */
 export interface Source {
-  id: string;
   /** 1-based position in the case pool — the number rendered in prose. */
   index: number;
   title: string;
@@ -138,12 +137,12 @@ export interface Finding {
   hypothesisIds: string[];
   /**
    * Citation link if literature/web.
-   * @deprecated Superseded by `sourceIds` + the case Source pool; retained so
-   * cases persisted before ADR 0003 still render.
+   * @deprecated Superseded by `sourceIndices` + the case Source pool; retained
+   * so cases persisted before ADR 0003 still render.
    */
   citation?: { label: string; url?: string };
   /** Indices into `Case.sources` backing this finding. */
-  sourceIds?: number[];
+  sourceIndices?: number[];
   createdAt: string;
 }
 
@@ -256,8 +255,6 @@ export interface EngineRoundResult {
   hypotheses: Hypothesis[];
   /** Findings produced this round (from experts / clinician). */
   findings: Finding[];
-  /** Sources newly added to the case pool this round. */
-  sources: Source[];
   /** The engine's free-text narration for the chat. */
   message: string;
   /** What the engine wants to do next. */

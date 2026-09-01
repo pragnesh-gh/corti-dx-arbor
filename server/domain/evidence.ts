@@ -15,13 +15,20 @@
  * The pass is best-effort by design: a timeout or a dev-WEU platform flap
  * degrades the round to hypothesis-only rather than failing it. Missing
  * grounding is acceptable; pretending to have it is not.
+ *
+ * It is deliberately split in two. `fetchEvidence` talks to the experts and
+ * mutates nothing, so it can run concurrently with the hypothesis engine — and
+ * be retried, or abandoned, without leaving half a round behind.
+ * `applyEvidence` folds the result into the Case afterwards, when the engine's
+ * own merge is done, so findings attach to the differential as it ends the
+ * round rather than racing the engine's upserts mid-flight.
  */
 
 import type { CortiClient } from "../corti/client.js";
 import type { A2AMessage } from "../corti/types.js";
 import { appendEvent, newId } from "./case-store.js";
 import { extractJson, textOf } from "./parse.js";
-import { mergeSources, type RawSource } from "./sources.js";
+import { mergeSources, resolveRefs, rewriteMarkers, type RawSource } from "./sources.js";
 import type { Case, Finding, Source } from "./types.js";
 
 /** How many live hypotheses the pass will research in one round. */
@@ -91,15 +98,18 @@ Respond with ONLY this JSON object, no prose and no markdown fences:
 }
 
 /**
- * Run the evidence pass for a case. Never throws: on timeout, platform error,
- * or unparseable output it returns empty and the round continues ungrounded.
+ * Ask the experts for evidence on the case's live hypotheses. Mutates nothing —
+ * hand the result to `applyEvidence` once the round's engine leg has landed.
+ *
+ * Never throws: on timeout, platform error, or unparseable output it returns
+ * null and the round continues ungrounded.
  */
-export async function runEvidencePass(
+export async function fetchEvidence(
   client: CortiClient,
   agentId: string,
   c: Case,
   opts: { onStaleAgent?: (agentId: string) => Promise<string | void> } = {},
-): Promise<EvidencePassResult> {
+): Promise<RawEvidence | null> {
   const targets = Object.values(c.hypotheses)
     .filter((h) => h.status === "live")
     .sort((a, b) => b.probability - a.probability)
@@ -132,8 +142,18 @@ export async function runEvidencePass(
     raw = extractJson(text) as RawEvidence | null;
   } catch (e) {
     console.warn(`[arbor] evidence pass failed (round continues ungrounded): ${(e as Error).message.slice(0, 140)}`);
-    return EMPTY;
+    return null;
   }
+  return raw;
+}
+
+/**
+ * Fold a fetched evidence result into the Case: merge its sources into the
+ * pool, rewrite its prose markers to stable indices, and attach its findings to
+ * the hypotheses they bear on. Synchronous and idempotent-per-call — run it
+ * exactly once per round, after the hypothesis engine's own merge.
+ */
+export function applyEvidence(c: Case, raw: RawEvidence | null): EvidencePassResult {
   if (!raw) return EMPTY;
 
   const { refMap, added } = mergeSources(c.sources, raw.sources, c.round);
@@ -142,25 +162,24 @@ export async function runEvidencePass(
 
   for (const rf of raw.findings || []) {
     if (!rf.summary?.trim()) continue;
-    const sourceIds = [
-      ...new Set(
-        (rf.sourceRefs || [])
-          .map((r) => refMap[r.trim().toUpperCase()] ?? refMap[r.trim()])
-          .filter((i): i is number => typeof i === "number"),
-      ),
-    ].sort((a, b) => a - b);
+    const sourceIndices = resolveRefs(refMap, rf.sourceRefs || []);
     // A literature finding with no resolvable source is an unbacked assertion
     // from an agent whose whole job is to bring back sources. Drop it.
-    if (!sourceIds.length) continue;
+    if (!sourceIndices.length) continue;
+
+    // The orchestrator may also cite inline, in its own local refs. Same rule
+    // as the engine: rewrite to pool indices, strip whatever doesn't resolve.
+    const summary = rewriteMarkers(rf.summary.trim(), refMap, "evidence finding.summary")!;
+    const detail = rewriteMarkers(rf.detail?.trim() || undefined, refMap, "evidence finding.detail");
 
     const f: Finding = {
       id: newId("fnd"),
-      summary: rf.summary.trim(),
-      detail: rf.detail?.trim() || undefined,
+      summary,
+      detail,
       source: "literature",
       direction: rf.direction || "neutral",
       hypothesisIds: [],
-      sourceIds,
+      sourceIndices,
       createdAt: now,
     };
     for (const hn of rf.hypothesisNames || []) {

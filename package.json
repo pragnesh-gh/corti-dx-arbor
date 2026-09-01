@@ -2,7 +2,7 @@
   "name": "corti-dx-arbor",
   "version": "0.1.0",
   "private": true,
-  "description": "Arbor \u2014 a clinical differential-diagnosis agent on the Corti Agent API: a retraceable decision-tree of narrowing hypotheses from presentation to working diagnosis to treatment plan.",
+  "description": "Arbor — a clinical differential-diagnosis agent on the Corti Agent API: a retraceable decision-tree of narrowing hypotheses from presentation to working diagnosis to treatment plan.",
   "type": "module",
   "workspaces": [
     "server",

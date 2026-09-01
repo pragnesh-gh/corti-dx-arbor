@@ -82,18 +82,17 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy }: Props) 
       {c.treatmentPlan && (
         <div className="treatment-card">
           <h3>Treatment plan</h3>
-          <p>
-            <Cited text={c.treatmentPlan.summary} sources={c.sources} />
-          </p>
+          {/* Treatment prose is NOT marker-rewritten (treatment.ts has no
+              source pool), so it renders plain: a bracketed number there means
+              nothing, and must never resolve to a real paper. */}
+          <p>{c.treatmentPlan.summary}</p>
           {c.treatmentPlan.steps.length > 0 && (
             <ol className="steps">
               {c.treatmentPlan.steps.map((s, i) => (
                 <li key={i}>
                   <div className="step-title">{s.title}</div>
                   {s.detail && (
-                    <div className="muted small">
-                      <Cited text={s.detail} sources={c.sources} />
-                    </div>
+                    <div className="muted small">{s.detail}</div>
                   )}
                   {s.citation && (
                     <a className="cite" href={s.citation.url} target="_blank" rel="noreferrer">
@@ -172,7 +171,7 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy }: Props) 
                       text={findingsById[e.findingId]?.summary || e.weight}
                       sources={c.sources}
                     />
-                    <SourceChips ids={findingsById[e.findingId]?.sourceIds} sources={c.sources} />
+                    <SourceChips ids={findingsById[e.findingId]?.sourceIndices} sources={c.sources} />
                   </li>
                 ))}
               </ul>
@@ -188,7 +187,7 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy }: Props) 
                       text={findingsById[e.findingId]?.summary || e.weight}
                       sources={c.sources}
                     />
-                    <SourceChips ids={findingsById[e.findingId]?.sourceIds} sources={c.sources} />
+                    <SourceChips ids={findingsById[e.findingId]?.sourceIndices} sources={c.sources} />
                   </li>
                 ))}
               </ul>

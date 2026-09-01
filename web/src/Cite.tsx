@@ -119,7 +119,7 @@ export function SourceList({
     <ol className="source-list">
       {sources.map((s) => (
         <li
-          key={s.id}
+          key={s.index}
           id={`source-${s.index}`}
           className={`source-item${highlight === s.index ? " highlight" : ""}`}
         >

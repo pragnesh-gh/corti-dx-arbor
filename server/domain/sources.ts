@@ -113,7 +113,6 @@ export function mergeSources(
     }
     const index = pool.length + 1;
     const s: Source = {
-      id: `src_${index}`,
       index,
       title: (raw.title || raw.url || raw.identifier || "Untitled source").trim(),
       url: raw.url?.trim() || undefined,
@@ -134,30 +133,63 @@ export function mergeSources(
 const MARKER = /\[\s*([SN]\d+(?:\s*,\s*[SN]\d+)*)\s*\]/gi;
 
 /**
+ * Resolve a list of model refs to stable pool indices, dropping the ones the
+ * map doesn't know. Refs are case-insensitive (`s1` and `S1` are the same
+ * source) because models are not reliably consistent about the casing.
+ */
+export function resolveRefs(refMap: Record<string, number>, refs: string[]): number[] {
+  const found = refs
+    .map((r) => refMap[r.trim().toUpperCase()] ?? refMap[r.trim()])
+    .filter((i): i is number => typeof i === "number");
+  return [...new Set(found)].sort((a, b) => a - b);
+}
+
+/**
  * Rewrite the model's local refs to stable pool indices, dropping any ref it
  * never declared. A marker left with no resolvable refs is removed entirely,
  * along with the whitespace it leaves behind.
+ *
+ * A dropped marker is a model citing a source it never produced, so it is
+ * logged: silently swallowing it would hide the one signal that the model is
+ * fabricating references. `where` names the field for that log line.
  */
 export function rewriteMarkers(
   text: string | undefined,
   refMap: Record<string, number>,
+  where = "prose",
 ): string | undefined {
   if (!text) return text;
-  let dropped = 0;
+  const dangling: string[] = [];
   const out = text.replace(MARKER, (_m, refs: string) => {
-    const indices = refs
-      .split(",")
-      .map((r) => refMap[r.trim().toUpperCase()] ?? refMap[r.trim()])
-      .filter((i): i is number => typeof i === "number");
+    const list = refs.split(",");
+    const indices = resolveRefs(refMap, list);
     if (!indices.length) {
-      dropped++;
+      dangling.push(...list.map((r) => r.trim()));
       return "";
     }
-    return `[${[...new Set(indices)].sort((a, b) => a - b).join(", ")}]`;
+    return `[${indices.join(", ")}]`;
   });
+  const dropped = dangling.length;
   if (!dropped) return out;
+  console.warn(
+    `[arbor] stripped ${dropped} unresolvable citation marker(s) in ${where}: ${dangling.join(", ")}`,
+  );
   // Tidy the gap a stripped marker leaves: " ." → "." and doubled spaces.
   return out
+    .replace(/\s+([.,;:!?)\]])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+/**
+ * Remove every marker from prose that is deliberately uncited (the engine's
+ * chat narration). Unlike `rewriteMarkers` this is not a failure, so it is
+ * silent.
+ */
+export function stripMarkers(text: string | undefined): string | undefined {
+  if (!text) return text;
+  return text
+    .replace(MARKER, "")
     .replace(/\s+([.,;:!?)\]])/g, "$1")
     .replace(/[ \t]{2,}/g, " ")
     .trim();

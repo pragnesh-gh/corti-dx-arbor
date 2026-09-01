@@ -47,7 +47,7 @@ import { provisionTeam, teardownTeam, recreateAgent, type AgentTeam } from "./do
 import { store } from "./domain/case-store.js";
 import { createCase } from "./domain/case-factory.js";
 import { recordFinding, runRound, setWorkingDiagnosis, withRetry } from "./domain/engine.js";
-import { runEvidencePass } from "./domain/evidence.js";
+import { applyEvidence, fetchEvidence } from "./domain/evidence.js";
 import { buildTreatmentPlan } from "./domain/treatment.js";
 import type { Case, Presentation } from "./domain/types.js";
 
@@ -162,6 +162,26 @@ app.post("/api/cases/:id/advance", async (req, res) => {
     // also retries across windows via withRetry) and retry the round. Loop a
     // few times so we ride out a 404 window into the next working one.
     // (runRound increments c.round at the top; we undo that on each retry.)
+    // The evidence pass runs alongside the hypothesis engine, not before it:
+    // the two agents are independent this round, and what the pass brings back
+    // becomes the citable Source pool for the NEXT round's prompt. That keeps
+    // round latency flat while still grounding the citations. See
+    // docs/adr/0003-grounded-inline-citations.md.
+    //
+    // It is started ONCE, outside the retry loop, and it only fetches: a round
+    // that 404s and retries must not fire a second pass or record its findings
+    // twice. Its result is folded in after the engine leg lands.
+    const evidenceTeam = team ?? (await getTeam().catch(() => null));
+    const evidenceFetch = evidenceTeam
+      ? fetchEvidence(client, evidenceTeam.evidenceOrchestrator.id, c, {
+          onStaleAgent: async (oldId) => {
+            if (!team || team.evidenceOrchestrator.id !== oldId) return;
+            const fresh = await recreateAgent(client, team, "evidenceOrchestrator");
+            return fresh.id;
+          },
+        })
+      : Promise.resolve(null);
+
     let result: Awaited<ReturnType<typeof runRound>> | undefined;
     let lastErr: unknown;
     for (let attempt = 0; attempt < 4 && !result; attempt++) {
@@ -177,29 +197,7 @@ app.post("/api/cases/:id/advance", async (req, res) => {
           const fresh = await recreateAgent(client, team, "hypothesisEngine");
           return fresh.id;
         };
-        // The evidence pass runs alongside the hypothesis engine, not before
-        // it: the two agents are independent this round, and what the pass
-        // brings back becomes the citable Source pool for the NEXT round's
-        // prompt. That keeps round latency flat while still grounding the
-        // citations. See docs/adr/0003-grounded-inline-citations.md.
-        //
-        // It is deliberately awaited via allSettled: a failed or slow evidence
-        // pass degrades the round to ungrounded, it never fails it.
-        const evidenceAgentId = t?.evidenceOrchestrator.id;
-        const [roundOutcome] = await Promise.allSettled([
-          runRound(client, agentId, c, { onStaleAgent }),
-          evidenceAgentId
-            ? runEvidencePass(client, evidenceAgentId, c, {
-                onStaleAgent: async (oldId) => {
-                  if (!team || team.evidenceOrchestrator.id !== oldId) return;
-                  const fresh = await recreateAgent(client, team, "evidenceOrchestrator");
-                  return fresh.id;
-                },
-              })
-            : Promise.resolve(null),
-        ]);
-        if (roundOutcome.status === "rejected") throw roundOutcome.reason;
-        result = roundOutcome.value;
+        result = await runRound(client, agentId, c, { onStaleAgent });
       } catch (e) {
         lastErr = e;
         if (!/404 page not found|404/i.test((e as Error).message || "")) throw e;
@@ -211,6 +209,9 @@ app.post("/api/cases/:id/advance", async (req, res) => {
       }
     }
     if (!result) throw lastErr;
+    // Fold in whatever the experts found. `fetchEvidence` never rejects, so
+    // this cannot fail the round: at worst the round is simply ungrounded.
+    applyEvidence(c, await evidenceFetch);
     // Apply the decision's effects.
     if (result.decision.kind === "converged") {
       setWorkingDiagnosis(c, result.decision.hypothesisId, result.decision.confidence, result.message);

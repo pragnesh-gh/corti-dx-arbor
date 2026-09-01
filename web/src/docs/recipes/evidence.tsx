@@ -67,19 +67,24 @@ export default function EvidenceRecipe() {
         hypothesis description and base-rate note, the discriminating-test
         rationale, each finding, and every step of the reasoning trail.
       </p>
-      <pre className="docs-code">{`// what the engine returns
+      <pre className="docs-code">{`// what the EVIDENCE PASS returns — the only thing that can add a source
 { sources: [{ ref: "N1", title: "Age-stratified PE prevalence",
               identifier: "PMID:12345678", type: "paper" }],
-  hypotheses: [{ name: "Pulmonary embolism",
-                 baseRateNote: "Prevalence rises sharply after 60 [N1]." }] }
+  findings: [{ summary: "Prevalence rises sharply after 60",
+               direction: "supports", sourceRefs: ["N1"] }] }
 
-// what the server stores, after merging into the pool
+// next round, the HYPOTHESIS ENGINE sees the pool and cites it by ref
+{ hypotheses: [{ name: "Pulmonary embolism",
+                 baseRateNote: "Prevalence rises sharply after 60 [S3]." }] }
+
+// what the server stores, after rewriting refs to stable pool indices
 { baseRateNote: "Prevalence rises sharply after 60 [3]." }`}</pre>
       <div className="docs-callout">
-        A marker the model cites but never declared is <strong>stripped</strong>{" "}
-        server-side, never rendered. An uncited claim is honest; a footnote that
-        resolves to nothing is not. Sources are never invented by the reasoning
-        model on its own authority — the experts have to return them.
+        The hypothesis engine has no <code>sources</code> field: it can cite the
+        pool, never add to it. A marker naming anything the experts did not
+        return is <strong>stripped</strong> server-side and logged, never
+        rendered. An uncited claim is honest; a footnote that resolves to
+        nothing is not.
       </div>
 
       <h2 className="docs-h2">Reading the findings</h2>
