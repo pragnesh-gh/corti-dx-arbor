@@ -31,7 +31,13 @@ import type {
 interface EngineRawHypothesis {
   name: string;
   description?: string;
-  codes?: { system: string; code: string; display?: string }[];
+  /**
+   * Raw, UNTRUSTED codes straight off the model. Deliberately `unknown`: the
+   * model has been observed to return `["ICD-10:I00"]` (an array of strings)
+   * instead of the documented object form, which used to render as a bare
+   * ":" row in the UI. Everything must go through `normalizeCodes`.
+   */
+  codes?: unknown;
   /** 0–100 for ergonomics; we normalize to 0–1. */
   probability?: number;
   isZebra?: boolean;
@@ -72,6 +78,57 @@ function textOf(msg: A2AMessage | undefined): string {
     .filter(Boolean)
     .join("\n")
     .trim();
+}
+
+type Code = { system: string; code: string; display?: string };
+
+/**
+ * Coerce the model's `codes` into the documented `{system, code, display?}`
+ * shape, dropping anything unusable.
+ *
+ * The model is inconsistent here: sometimes it returns proper objects, and
+ * sometimes an array of `"SYSTEM:CODE Display"` strings. The string form used
+ * to flow through unchanged, so `c.system`/`c.code` were `undefined` and the
+ * DetailPanel rendered a bare ":" row. We recover the string form rather than
+ * discard it (the data is really there, just badly shaped) and drop entries
+ * that have no usable system+code, so a bad response can never reach the DOM.
+ */
+export function normalizeCodes(raw: unknown): Code[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: Code[] = [];
+  for (const entry of raw) {
+    const c = coerceCode(entry);
+    if (c) out.push(c);
+  }
+  return out.length ? out : undefined;
+}
+
+function coerceCode(entry: unknown): Code | null {
+  // "ICD-10:I00" / "SNOMED: 373170000 Viral arthropathy"
+  if (typeof entry === "string") {
+    const m = /^\s*([^:]+?)\s*:\s*(\S+)\s*(.*)$/.exec(entry);
+    if (!m) return null;
+    const [, system, code, display] = m;
+    return mk(system, code, display);
+  }
+  if (entry && typeof entry === "object") {
+    const o = entry as Record<string, unknown>;
+    return mk(o.system, o.code, o.display);
+  }
+  return null;
+}
+
+function mk(system: unknown, code: unknown, display: unknown): Code | null {
+  const s = str(system);
+  const c = str(code);
+  // Both are required — an entry missing either is what produced the bare ":".
+  if (!s || !c) return null;
+  const d = str(display);
+  return d ? { system: s, code: c, display: d } : { system: s, code: c };
+}
+
+function str(v: unknown): string {
+  return typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "";
 }
 
 /** Extract the first parseable JSON object from an LLM text blob. */
@@ -205,7 +262,9 @@ FINDINGS SO FAR
 ${renderFindings(c)}
 
 TASK
-Update the differential. Emit the FULL set of live hypotheses with updated probabilities (hypotheses that are now ruled out should be omitted from "hypotheses" but named in rulesOut). Branch (set parent) when a finding splits a hypothesis. Return ONLY the JSON object matching the schema: { hypotheses:[{name, description?, codes?, probability(0-100), isZebra?, baseRateNote?, parent?, rulesOut?:[name], discriminatingTests?:[{name, rationale, discriminatesBetween?:[name]}]}], findings?:[{summary, detail?, direction?, hypothesisNames?, citation?, source?}], message:string, decision:{kind:"converged"|"test"|"gather", ...} }`;
+Update the differential. Emit the FULL set of live hypotheses with updated probabilities (hypotheses that are now ruled out should be omitted from "hypotheses" but named in rulesOut). Branch (set parent) when a finding splits a hypothesis. Return ONLY the JSON object matching the schema: { hypotheses:[{name, description?, codes?:[{system:string, code:string, display?:string}], probability(0-100), isZebra?, baseRateNote?, parent?, rulesOut?:[name], discriminatingTests?:[{name, rationale, discriminatesBetween?:[name]}]}], findings?:[{summary, detail?, direction?, hypothesisNames?, citation?, source?}], message:string, decision:{kind:"converged"|"test"|"gather", ...} }
+
+Every entry in "codes" MUST be an object with a "system" and a "code" string (e.g. {"system":"ICD-10","code":"I00","display":"Rheumatic fever"}). Never emit a code as a bare string such as "ICD-10:I00". Omit "codes" entirely rather than guessing a code.`;
 
   // Use the reliable send: POST message:send, then poll the task to
   // completion. The dev-weu gateway often returns a plain-text 404 on the
@@ -356,7 +415,7 @@ function mergeEngineResponse(
       // Update in place.
       existing.probability = prob;
       existing.description = rh.description ?? existing.description;
-      existing.codes = rh.codes ?? existing.codes;
+      existing.codes = normalizeCodes(rh.codes) ?? existing.codes;
       existing.isZebra = rh.isZebra ?? existing.isZebra;
       existing.baseRateNote = rh.baseRateNote ?? existing.baseRateNote;
       existing.discriminatingTests = discriminatingTests ?? existing.discriminatingTests;
@@ -378,7 +437,7 @@ function mergeEngineResponse(
         id: newId("hyp"),
         name: rh.name,
         description: rh.description,
-        codes: rh.codes,
+        codes: normalizeCodes(rh.codes),
         probability: prob,
         status: "live",
         parentId,

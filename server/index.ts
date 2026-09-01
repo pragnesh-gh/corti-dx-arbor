@@ -318,15 +318,29 @@ app.post("/api/cases/:id/chat", async (req, res) => {
   try {
     const prompt = `CASE: ${summarize(c)}\n\nCLINICIAN QUESTION: ${body.message}\n\nAnswer concisely as decision support, referencing the current differential where relevant. Do not state diagnoses as certain.`;
     const ct = await getTeam();
+    // Use the reliable send (as runRound does): the dev-weu gateway often
+    // returns the answer on the polled task rather than on the send response,
+    // so a plain sendMessage frequently yielded an empty reply.
     const resp = await withRetry(() =>
-      client.sendMessage(ct.hypothesisEngine.id, {
+      client.sendMessageReliable(ct.hypothesisEngine.id, {
         message: { role: "ROLE_USER", parts: [{ kind: "text", text: prompt }] },
       }),
     );
+    // Same three-way extraction as the round: direct message, then the task's
+    // status message, then its artifacts.
     const text =
-      (resp.message?.parts || []).map((p: { text?: string }) => p.text || "").join("\n").trim() ||
-      textOf(resp.task?.status?.message);
+      partsText(resp.message) ||
+      partsText(resp.task?.status?.message) ||
+      (resp.task?.artifacts || [])
+        .flatMap((a: { parts?: { text?: string }[] }) => (a.parts || []).map((p) => p.text || ""))
+        .filter(Boolean)
+        .join("\n")
+        .trim();
     store.update(c.id, () => {});
+    if (!text) {
+      res.status(502).json({ error: "the engine returned an empty answer — try asking again" });
+      return;
+    }
     res.json({ reply: text });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
@@ -342,9 +356,12 @@ function summarize(c: Case): string {
   return `${c.presentation.chiefComplaint}. Live differential: ${live || "(none yet)"}. Findings: ${c.findings.map((f) => f.summary).join("; ") || "(none)"}`;
 }
 
-function textOf(msg: unknown): string {
-  const m = msg as { status?: { message?: { parts?: { text?: string }[] } } };
-  return (m?.status?.message?.parts || []).map((p) => p.text || "").join("").trim();
+/** Join the text parts of an A2A message. The previous helper took a message
+ *  but indexed it as if it were a task (`status.message.parts`), so the chat
+ *  fallback always resolved to "" and the answer bubble rendered empty. */
+function partsText(msg: unknown): string {
+  const m = msg as { parts?: { text?: string }[] } | undefined;
+  return (m?.parts || []).map((p) => p.text || "").join("\n").trim();
 }
 
 // ---- SSE live stream ------------------------------------------------------

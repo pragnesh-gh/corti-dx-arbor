@@ -83,9 +83,14 @@ export function EvidencePanel({ c }: Props) {
           </div>
           <div className="tests-list">
             {c.tests.map((t) => (
+              // The badge is a flex sibling of the text column, not an
+              // absolutely-positioned overlay — a long test name now wraps
+              // beside it instead of running underneath it.
               <div key={t.id} className={`test ${t.status}`}>
-                <div className="test-name">{t.name}</div>
-                <div className="muted small">{t.rationale}</div>
+                <div className="test-main">
+                  <div className="test-name">{t.name}</div>
+                  <div className="muted small">{t.rationale}</div>
+                </div>
                 <span className={`test-status ${t.status}`}>{t.status}</span>
               </div>
             ))}

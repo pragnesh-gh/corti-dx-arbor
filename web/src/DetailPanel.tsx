@@ -32,6 +32,12 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy, interacti
   for (const f of c.findings) findingsById[f.id] = f;
   const [descOpen, setDescOpen] = useState(false);
 
+  // Last line of defence for the codes row. The server normalizes what the
+  // model returns, but canned/persisted cases and any future writer reach this
+  // component too — and an entry without a system+code used to render as a
+  // bare ":" row. Drop those here so they can never reach the DOM.
+  const codes = (h?.codes ?? []).filter((x) => x && x.system && x.code);
+
   // Discoverability for "Set working dx": when reasoning and there is a leading
   // live hypothesis, surface the action where the user is looking at it. This
   // was a buried ghost button in the chat actions; now it explains *when*.
@@ -152,18 +158,18 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy, interacti
               <p className="muted small">{h.baseRateNote}</p>
             </div>
           )}
-          {h.codes?.length ? (
+          {codes.length > 0 && (
             <div className="codes">
               <strong>Codes</strong>
               <ul>
-                {h.codes.map((c2, i) => (
+                {codes.map((c2, i) => (
                   <li key={i}>
                     {c2.system}: <code>{c2.code}</code> {c2.display}
                   </li>
                 ))}
               </ul>
             </div>
-          ) : null}
+          )}
           {h.evidenceFor.length > 0 && (
             <div className="ev-block">
               <strong>Supporting evidence</strong>

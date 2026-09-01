@@ -242,10 +242,14 @@ button.ghost:hover:not(:disabled) { background: var(--surface-container-low); bo
 .tests-list { padding: 0 12px; display: flex; flex-direction: column; gap: 6px; }
 .test {
   background: var(--surface-container-lowest); border: 1px solid var(--outline-variant); border-radius: var(--r-sm);
-  padding: 8px 10px; font-size: 13px; position: relative;
+  padding: 8px 10px; font-size: 13px;
+  display: flex; align-items: flex-start; gap: 10px;
 }
-.test-name { font-weight: 600; }
-.test-status { position: absolute; top: 8px; right: 10px; font-size: 11px; text-transform: uppercase; }
+.test-main { flex: 1; min-width: 0; }
+.test-name { font-weight: 600; overflow-wrap: anywhere; }
+/* Non-shrinking sibling: it reserves its own column instead of overlaying the
+   name, which it used to do as a full-width `position: absolute` badge. */
+.test-status { flex: 0 0 auto; font-size: 11px; text-transform: uppercase; line-height: 1.5; white-space: nowrap; }
 .test-status.proposed { color: var(--hitl); }
 .test-status.ordered { color: var(--primary); }
 .test-status.resulted { color: var(--confirmed); }
@@ -360,9 +364,15 @@ button.ghost:hover:not(:disabled) { background: var(--surface-container-low); bo
 .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
 
 /* chat */
-.chat-panel { display: flex; flex-direction: column; border-bottom: 1px solid var(--outline-variant); max-height: 46%; }
-.chat-stream { padding: 4px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; max-height: 220px; }
-.chat-section-label { margin: 6px 2px 2px; color: var(--outline); }
+/* Q&A dock: the toggle is its header and the input its floor, so the thread
+   always grows upward from the box you type in. */
+.chat-dock { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--outline-variant); }
+.chat-dock.open { flex: 1 1 auto; max-height: 60%; background: var(--surface-container-low); }
+.chat-panel { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+/* One conversation, newest at the bottom, directly above the input. */
+.chat-thread { padding: 8px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-height: 120px; }
+.chat-empty { margin: 4px 0; }
+.chat-end { height: 0; }
 .msg { padding: 8px 10px; border-radius: var(--r-sm); font-size: 13px; background: var(--surface-container-lowest); border: 1px solid var(--outline-variant); }
 .msg-role { font-size: 11px; text-transform: uppercase; color: var(--outline); margin-bottom: 2px; letter-spacing: 0.05em; }
 .msg.engine_message { border-left: 3px solid var(--primary); }
@@ -371,6 +381,7 @@ button.ghost:hover:not(:disabled) { background: var(--surface-container-low); bo
 /* Q&A thread: echo the question + pair the answer beneath it */
 .qa-pair { display: flex; flex-direction: column; gap: 4px; }
 .msg.you { background: var(--surface-container); border-left: 3px solid var(--outline); align-self: flex-end; max-width: 92%; }
+.msg.narration { opacity: 0.92; }
 .msg.answer { align-self: flex-start; max-width: 96%; }
 .msg-body { white-space: pre-wrap; line-height: 1.4; }
 .msg.pending .msg-body { display: flex; align-items: center; gap: 8px; color: var(--on-surface-variant); font-style: italic; }
@@ -616,7 +627,8 @@ button.ghost:hover:not(:disabled) { background: var(--surface-container-low); bo
 .view-toggle { display: flex; gap: 6px; }
 .view-toggle button { padding: 4px 12px; font-size: 12px; height: 32px; }
 .view-toggle button.on { background: var(--primary); color: #fff; border-color: var(--primary); }
-.chat-toggle { margin: 10px 14px; width: calc(100% - 28px); }
+.chat-toggle { margin: 8px 14px; width: calc(100% - 28px); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.chat-caret { font-size: 10px; color: var(--outline); }
 
 /* ---- converge hint in detail panel ---- */
 .converge-hint {

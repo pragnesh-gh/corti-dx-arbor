@@ -201,13 +201,19 @@ export function App() {
               busy={busy}
               setBusy={setBusy}
             />
-            <button
-              className="chat-toggle ghost"
-              onClick={() => setChatOpen((v) => !v)}
-            >
-              {chatOpen ? "Hide Q&A" : "Ask the engine"}
-            </button>
-            {chatOpen && <ChatPanel c={c} onUpdated={setCase} busy={busy} setBusy={setBusy} />}
+            {/* The toggle is the dock's header, so the control and the thread
+                it opens read as one unit anchored to the bottom of the pane. */}
+            <div className={`chat-dock ${chatOpen ? "open" : ""}`}>
+              <button
+                className="chat-toggle ghost"
+                onClick={() => setChatOpen((v) => !v)}
+                aria-expanded={chatOpen}
+              >
+                <span>Ask the engine</span>
+                <span className="chat-caret">{chatOpen ? "▾" : "▴"}</span>
+              </button>
+              {chatOpen && <ChatPanel c={c} onUpdated={setCase} busy={busy} setBusy={setBusy} />}
+            </div>
           </aside>
         </div>
       ) : (
