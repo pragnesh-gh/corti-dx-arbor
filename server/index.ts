@@ -45,6 +45,7 @@ import express from "express";
 import { CortiClient } from "./corti/client.js";
 import { provisionTeam, teardownTeam, recreateAgent, type AgentTeam } from "./domain/agent-manager.js";
 import { store } from "./domain/case-store.js";
+import { capture } from "./domain/history.js";
 import { createCase } from "./domain/case-factory.js";
 import { recordFinding, runRound, setWorkingDiagnosis, withRetry } from "./domain/engine.js";
 import { applyEvidence, fetchEvidence } from "./domain/evidence.js";
@@ -209,9 +210,14 @@ app.post("/api/cases/:id/advance", async (req, res) => {
       }
     }
     if (!result) throw lastErr;
-    // Fold in whatever the experts found. `fetchEvidence` never rejects, so
-    // this cannot fail the round: at worst the round is simply ungrounded.
-    applyEvidence(c, await evidenceFetch);
+    // Fold in whatever the experts found. `fetchEvidence` never rejects, and
+    // this is wrapped so a malformed expert payload cannot fail the round
+    // either: at worst the round is simply ungrounded.
+    try {
+      applyEvidence(c, await evidenceFetch);
+    } catch (e) {
+      console.error("[arbor] evidence pass discarded:", (e as Error).message);
+    }
     // Apply the decision's effects.
     if (result.decision.kind === "converged") {
       setWorkingDiagnosis(c, result.decision.hypothesisId, result.decision.confidence, result.message);
@@ -225,6 +231,7 @@ app.post("/api/cases/:id/advance", async (req, res) => {
     }
     if (c.status === "intake") c.status = "reasoning";
     store.update(c.id, () => {});
+    capture(c, "round", `Round ${c.round}`);
     emit(c.id, { kind: "round", payload: store.snapshot(c.id) });
     res.json(store.snapshot(c.id));
   } catch (e) {
@@ -270,6 +277,9 @@ app.post("/api/cases/:id/finding", (req, res) => {
   c.awaitingHitl = false;
   c.hitlPrompt = undefined;
   store.update(c.id, () => {});
+  // A clinician-entered result moves the case as much as a round does, so it
+  // earns its own frame on the tape.
+  capture(c, "finding", `Result: ${trim(body.summary)}`);
   emit(c.id, { kind: "finding", payload: f });
   res.json(store.snapshot(c.id));
 });
@@ -298,6 +308,7 @@ app.post("/api/cases/:id/diagnose", (req, res) => {
     body.message || "Working diagnosis confirmed by clinician.",
   );
   store.update(c.id, () => {});
+  capture(c, "diagnosis", `Diagnosis: ${trim(c.workingDiagnosis?.name || "working diagnosis")}`);
   emit(c.id, { kind: "diagnosis", payload: store.snapshot(c.id) });
   res.json(store.snapshot(c.id));
 });
@@ -318,6 +329,7 @@ app.post("/api/cases/:id/treat", async (req, res) => {
     const t = await getTeam();
     const plan = await buildTreatmentPlan(client, t.treatmentPlanner.id, c);
     store.update(c.id, () => {});
+    capture(c, "treatment", "Treatment plan");
     emit(c.id, { kind: "treatment", payload: plan });
     res.json(store.snapshot(c.id));
   } catch (e) {
@@ -370,6 +382,12 @@ app.post("/api/cases/:id/chat", async (req, res) => {
     res.status(500).json({ error: (e as Error).message });
   }
 });
+
+/** Short label for the scrubber — full text still lives in the snapshot. */
+function trim(s: string, max = 32): string {
+  const t = s.trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
 
 function summarize(c: Case): string {
   const live = Object.values(c.hypotheses)

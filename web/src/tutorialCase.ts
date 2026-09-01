@@ -24,7 +24,7 @@
  * at, and (optionally) the id of the hypothesis the tour highlights.
  */
 
-import type { Case, Finding, Hypothesis, TestProposal } from "./types.js";
+import type { Case, Finding, Hypothesis, TestProposal, HistoryEntry} from "./types.js";
 
 // Stable ids so cross-references resolve across snapshots.
 const H = {
@@ -139,6 +139,7 @@ const baseCase = {
   // The canned tour predates the grounded-citation pass; it carries no source
   // pool, so <Cited> renders its text plainly with no markers.
   sources: [],
+  history: [] as HistoryEntry[],
   createdAt: "",
   updatedAt: "",
 };
@@ -524,3 +525,42 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     spotlight: "treatment",
   },
 ];
+
+/**
+ * Give the tour a reasoning tape.
+ *
+ * The tutorial is already a scripted sequence of complete case states, which is
+ * exactly what a history entry is — so each step's tape is simply every step up
+ * to and including it. That makes the scrubber live in the tour too, where most
+ * people meet Arbor first, with no second set of canned data to maintain.
+ */
+const HISTORY_KINDS: HistoryEntry["kind"][] = [
+  "intake",
+  "round",
+  "finding",
+  "round",
+  "round",
+  "diagnosis",
+  "treatment",
+];
+
+for (let i = 0; i < TUTORIAL_STEPS.length; i++) {
+  TUTORIAL_STEPS[i]!.case.history = TUTORIAL_STEPS.slice(0, i + 1).map((st, seq) => ({
+    seq,
+    round: st.case.round,
+    kind: HISTORY_KINDS[seq] ?? "round",
+    label: st.label,
+    at: st.case.updatedAt || "",
+    status: st.case.status,
+    hypotheses: st.case.hypotheses,
+    rootHypothesisIds: st.case.rootHypothesisIds,
+    findings: st.case.findings,
+    sources: st.case.sources,
+    tests: st.case.tests,
+    workingDiagnosis: st.case.workingDiagnosis,
+    treatmentPlan: st.case.treatmentPlan,
+    awaitingHitl: st.case.awaitingHitl,
+    hitlPrompt: st.case.hitlPrompt,
+    eventCount: st.case.events.length,
+  }));
+}

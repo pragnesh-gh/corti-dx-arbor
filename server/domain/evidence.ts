@@ -55,9 +55,13 @@ export interface EvidencePassResult {
 
 const EMPTY: EvidencePassResult = { sources: [], findings: [] };
 
-function findByName(c: Case, name: string) {
-  const target = name.trim().toLowerCase();
-  return Object.values(c.hypotheses).find((h) => h.name.trim().toLowerCase() === target);
+/** As engine.ts's namesake: `name` comes from the model and may be absent. */
+function findByName(c: Case, name: unknown) {
+  const target = typeof name === "string" ? name.trim().toLowerCase() : "";
+  if (!target) return undefined;
+  return Object.values(c.hypotheses).find(
+    (h) => (typeof h.name === "string" ? h.name.trim().toLowerCase() : "") === target,
+  );
 }
 
 function buildPrompt(c: Case, targets: { name: string; description?: string }[]): string {

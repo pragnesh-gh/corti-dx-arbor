@@ -285,11 +285,20 @@ Every entry in "codes" MUST be an object with a "system" and a "code" string (e.
 
 // ---- Merge logic ----------------------------------------------------------
 
-/** Match an engine hypothesis name to an existing hypothesis id by name. */
-function findByName(c: Case, name: string): Hypothesis | undefined {
-  const target = name.trim().toLowerCase();
+/**
+ * Match a model-supplied hypothesis name to an existing hypothesis.
+ *
+ * `name` is untrusted: the engine has been observed to emit a hypothesis with no
+ * name at all, and a bare `name.trim()` here took the whole round down with
+ * "Cannot read properties of undefined (reading 'trim')". Stored names are
+ * guarded for the same reason — a nameless hypothesis merged in an earlier
+ * round would otherwise poison every later lookup.
+ */
+function findByName(c: Case, name: unknown): Hypothesis | undefined {
+  const target = typeof name === "string" ? name.trim().toLowerCase() : "";
+  if (!target) return undefined;
   return Object.values(c.hypotheses).find(
-    (h) => h.name.trim().toLowerCase() === target,
+    (h) => (typeof h.name === "string" ? h.name.trim().toLowerCase() : "") === target,
   );
 }
 
@@ -364,6 +373,8 @@ function mergeEngineResponse(
   // 3) Upsert hypotheses from the engine response.
   const upserted: Hypothesis[] = [];
   for (const rh of raw.hypotheses) {
+    // A hypothesis with no name has nothing to render and nothing to match on.
+    if (typeof rh.name !== "string" || !rh.name.trim()) continue;
     const existing = findByName(c, rh.name);
     const prob = (rh.probability ?? 0) / 100; // 0–100 → 0–1
     // Resolve parent for branching.

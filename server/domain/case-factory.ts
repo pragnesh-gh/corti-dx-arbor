@@ -3,6 +3,7 @@
  */
 
 import { appendEvent, newId, store } from "./case-store.js";
+import { capture } from "./history.js";
 import type { Case, Presentation } from "./types.js";
 
 export function createCase(presentation: Presentation, title?: string): Case {
@@ -23,6 +24,7 @@ export function createCase(presentation: Presentation, title?: string): Case {
     events: [],
     round: 0,
     awaitingHitl: false,
+    history: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -32,6 +34,8 @@ export function createCase(presentation: Presentation, title?: string): Case {
     summary: `Intake: ${presentation.chiefComplaint}`,
     payload: presentation,
   });
+  // Frame 0 of the tape: the case as presented, before any reasoning.
+  capture(c, "intake", "Intake");
   store.create(c);
   return c;
 }

@@ -79,7 +79,15 @@ export function Tutorial({ onExitToLive, onExitToHome }: Props) {
         ) : (
           <RankedDifferential c={c} selectedId={selectedId} onSelect={setSelectedId} />
         )}
-        <Timeline c={c} />
+        {/* The tour's tape is the whole tour, so the scrubber doubles as the
+            step control: drag back to revisit a step, or press play to watch
+            the whole differential build itself. */}
+        <Timeline
+          c={TUTORIAL_STEPS[TUTORIAL_STEPS.length - 1]!.case}
+          frameIdx={step}
+          onScrub={(i) => setStep(i ?? step)}
+          stepMode
+        />
       </main>
       <aside className="pane right">
         <DetailPanel

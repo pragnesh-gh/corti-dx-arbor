@@ -122,6 +122,41 @@ export interface CaseEvent {
   createdAt: string;
 }
 
+/** What kind of step produced a history entry (drives the scrubber's labels). */
+export type HistoryKind =
+  | "intake"
+  | "round"
+  | "finding"
+  | "diagnosis"
+  | "treatment";
+
+/**
+ * One frame of the case's reasoning tape — a complete, renderable state as it
+ * stood at the end of a step. See domain/history.ts for why these are stored
+ * rather than reconstructed.
+ */
+export interface HistoryEntry {
+  /** Position on the tape; also the scrubber's index. */
+  seq: number;
+  round: number;
+  kind: HistoryKind;
+  /** Human label for the scrubber: "Intake", "Round 3", "Result: ASO titre". */
+  label: string;
+  at: string;
+  status: CaseStatus;
+  hypotheses: Record<string, Hypothesis>;
+  rootHypothesisIds: string[];
+  findings: Finding[];
+  sources: Source[];
+  tests: TestProposal[];
+  workingDiagnosis?: WorkingDiagnosis;
+  treatmentPlan?: TreatmentPlan;
+  awaitingHitl: boolean;
+  hitlPrompt?: string;
+  /** How many events had been logged by the end of this step. */
+  eventCount: number;
+}
+
 export interface Case {
   id: string;
   title: string;
@@ -139,6 +174,8 @@ export interface Case {
   round: number;
   awaitingHitl: boolean;
   hitlPrompt?: string;
+  /** Append-only tape of past states, one per step. Enables time travel. */
+  history: HistoryEntry[];
   createdAt: string;
   updatedAt: string;
 }

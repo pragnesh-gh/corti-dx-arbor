@@ -27,6 +27,7 @@ import { Timeline } from "./Timeline.js";
 import { SCENARIOS, type Scenario, findScenario } from "./scenarios.js";
 import { TUTORIAL_STEPS } from "./tutorialCase.js";
 import * as api from "./api.js";
+import { caseAtFrame } from "./timeTravel.js";
 import type { Case } from "./types.js";
 
 function viewFromHash(): View {
@@ -44,6 +45,8 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [treeVsList, setTreeVsList] = useState<"tree" | "list">("tree");
   const [chatOpen, setChatOpen] = useState(false);
+  /** Selected history frame, or null when watching the present. */
+  const [frameIdx, setFrameIdx] = useState<number | null>(null);
   const unsubRef = useRef<(() => void) | null>(null);
 
   // Keep the view in sync with the hash (back button, shareable URL).
@@ -102,6 +105,7 @@ export function App() {
       const created = await api.createCase(s.presentation, s.title);
       setCase(created);
       setSelectedId(null);
+      setFrameIdx(null);
       go("workspace");
     } catch (e) {
       alert(`Failed to start: ${(e as Error).message}\nIs the Arbor server running on :8787 with .env set?`);
@@ -138,6 +142,7 @@ export function App() {
   function newCase() {
     setCase(null);
     setSelectedId(null);
+    setFrameIdx(null);
     go("home");
   }
 
@@ -156,17 +161,34 @@ export function App() {
           onExitToHome={() => go("home")}
         />
       ) : view === "workspace" && c ? (
-        <div className="workspace">
+        (() => {
+          // The frame drives every panel, so the whole workspace travels
+          // together. Actions still act on the live case — see `reviewing`.
+          const frame = frameIdx === null ? undefined : c.history?.[frameIdx];
+          const vc = frame ? caseAtFrame(c, frame) : c;
+          const reviewing = !!frame;
+          return (
+        <div className={`workspace ${reviewing ? "reviewing" : ""}`}>
           <aside className="pane left">
-            <NextAction
-              c={c}
-              onUpdated={setCase}
-              busy={busy}
-              setBusy={setBusy}
-              onNewCase={newCase}
-            />
+            {reviewing ? (
+              <div className="review-note">
+                <div className="review-title">Reviewing a past step</div>
+                <p className="muted small">
+                  Showing the case as it stood at <strong>{frame!.label}</strong>. Actions are
+                  paused while you look back — return to now to continue the case.
+                </p>
+              </div>
+            ) : (
+              <NextAction
+                c={c}
+                onUpdated={setCase}
+                busy={busy}
+                setBusy={setBusy}
+                onNewCase={newCase}
+              />
+            )}
             <div className="na-divider" />
-            <EvidencePanel c={c} onSelectHypothesis={setSelectedId} />
+            <EvidencePanel c={vc} onSelectHypothesis={setSelectedId} />
           </aside>
           <main className="pane center">
             <div className="center-head">
@@ -187,19 +209,20 @@ export function App() {
               </div>
             </div>
             {treeVsList === "tree" ? (
-              <DecisionTree c={c} selectedId={selectedId} onSelect={setSelectedId} />
+              <DecisionTree c={vc} selectedId={selectedId} onSelect={setSelectedId} />
             ) : (
-              <RankedDifferential c={c} selectedId={selectedId} onSelect={setSelectedId} />
+              <RankedDifferential c={vc} selectedId={selectedId} onSelect={setSelectedId} />
             )}
-            <Timeline c={c} />
+            <Timeline c={c} frameIdx={frameIdx} onScrub={setFrameIdx} />
           </main>
           <aside className="pane right">
             <DetailPanel
-              c={c}
+              c={vc}
               selectedId={selectedId}
               onUpdated={setCase}
               busy={busy}
               setBusy={setBusy}
+              interactive={!reviewing}
             />
             {/* The toggle is the dock's header, so the control and the thread
                 it opens read as one unit anchored to the bottom of the pane. */}
@@ -216,6 +239,8 @@ export function App() {
             </div>
           </aside>
         </div>
+          );
+        })()
       ) : (
         <Home
           onStartScenario={startScenario}
