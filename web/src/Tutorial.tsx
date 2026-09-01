@@ -19,6 +19,7 @@ import { DecisionTree } from "./DecisionTree.js";
 import { EvidencePanel } from "./EvidencePanel.js";
 import { DetailPanel } from "./DetailPanel.js";
 import { RankedDifferential } from "./RankedDifferential.js";
+import { Timeline } from "./Timeline.js";
 import { TutorialRail } from "./TutorialRail.js";
 import { TUTORIAL_STEPS } from "./tutorialCase.js";
 
@@ -55,7 +56,7 @@ export function Tutorial({ onExitToLive, onExitToHome }: Props) {
         <div className="na-divider" />
         <EvidencePanel c={c} />
       </aside>
-      <main className="pane center">
+      <main className="pane center" style={{ display: "flex", flexDirection: "column" }}>
         <div className="center-head">
           <h3>Reasoning tree</h3>
           <div className="view-toggle">
@@ -78,6 +79,7 @@ export function Tutorial({ onExitToLive, onExitToHome }: Props) {
         ) : (
           <RankedDifferential c={c} selectedId={selectedId} onSelect={setSelectedId} />
         )}
+        <Timeline c={c} />
       </main>
       <aside className="pane right">
         <DetailPanel

@@ -1,13 +1,12 @@
 /**
  * Arbor — differential-diagnosis decision-tree UI.
  *
- * Layout (revamped): a light in-app router switches between Home (the simple
- * front door), the Workspace (the live case console), and Docs (the in-app
- * recipes). The Workspace is no longer a fixed left/center/right split with the
- * round actions scattered across panels; a linear NextAction rail owns the
- * round cycle, the data-rich EvidencePanel sits under it, a Tree/List toggle
- * shows the differential two ways, and the DetailPanel keeps the hypothesis
- * detail, verdict, and treatment.
+ * The app shell (Clinical Precision chrome) wraps every view: a top app bar +
+ * an optional left side-nav. Inside it, a light hash-router switches between
+ * Home, the Workspace (live case console), the Tutorial (canned walk-through),
+ * and Docs (in-app recipes). The Workspace is a linear NextAction rail over a
+ * data-rich EvidencePanel, a Tree/List canvas toggle, a DetailPanel, and a
+ * bottom Timeline.
  *
  * Routing is a small `view` state plus history state so the back button and
  * shareable URLs work — no router dependency.
@@ -23,16 +22,18 @@ import { RankedDifferential } from "./RankedDifferential.js";
 import { Home } from "./Home.js";
 import { Docs } from "./docs/Docs.js";
 import { Tutorial } from "./Tutorial.js";
+import { AppShell, type View } from "./AppShell.js";
+import { Timeline } from "./Timeline.js";
 import { SCENARIOS, type Scenario, findScenario } from "./scenarios.js";
+import { TUTORIAL_STEPS } from "./tutorialCase.js";
 import * as api from "./api.js";
 import type { Case } from "./types.js";
-
-type View = "home" | "workspace" | "docs" | "tutorial";
 
 function viewFromHash(): View {
   const h = window.location.hash.replace(/^#\/?/, "");
   if (h.startsWith("docs")) return "docs";
   if (h.startsWith("tutorial")) return "tutorial";
+  if (h.startsWith("workspace")) return "workspace";
   return "home";
 }
 
@@ -43,6 +44,7 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [treeVsList, setTreeVsList] = useState<"tree" | "list">("tree");
   const [chatOpen, setChatOpen] = useState(false);
+  const [section, setSection] = useState<string>("diagnostics");
   const unsubRef = useRef<(() => void) | null>(null);
 
   // Keep the view in sync with the hash (back button, shareable URL).
@@ -140,43 +142,20 @@ export function App() {
     go("home");
   }
 
-  return (
-    <div className="app">
-      <header>
-        <div className="brand" onClick={() => go(c ? "workspace" : "home")} style={{ cursor: "pointer" }}>
-          <span className="logo">🌳</span>
-          <div>
-            <h1>Arbor</h1>
-            <p className="tag">retraceable differential diagnosis</p>
-          </div>
-        </div>
-        <div className="header-actions">
-          <button className="ghost" onClick={() => go("docs")}>
-            Recipes
-          </button>
-          {view === "tutorial" && (
-            <>
-              <span className="case-title">Guided tour</span>
-              <button className="ghost" onClick={newCase}>
-                Leave tour
-              </button>
-            </>
-          )}
-          {c && view === "workspace" && (
-            <>
-              <span className="case-title">{c.title}</span>
-              <button className="ghost" onClick={newCase}>
-                New case
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+  const inCase = view === "workspace" || view === "tutorial";
+  // For the tutorial, use the first canned snapshot's identity in the side-nav
+  // (the name/location don't change across steps; the live `c` is null there).
+  const shellCase = view === "tutorial" ? TUTORIAL_STEPS[0]!.case : c;
 
+  return (
+    <AppShell view={view} c={inCase ? shellCase : null} onGo={go} onNewCase={newCase} section={section} onSection={setSection}>
       {view === "docs" ? (
         <Docs />
       ) : view === "tutorial" ? (
-        <Tutorial onExitToLive={exitTutorialToLive} onExitToHome={() => go("home")} />
+        <Tutorial
+          onExitToLive={exitTutorialToLive}
+          onExitToHome={() => go("home")}
+        />
       ) : view === "workspace" && c ? (
         <div className="workspace">
           <aside className="pane left">
@@ -190,7 +169,7 @@ export function App() {
             <div className="na-divider" />
             <EvidencePanel c={c} />
           </aside>
-          <main className="pane center">
+          <main className="pane center" style={{ display: "flex", flexDirection: "column" }}>
             <div className="center-head">
               <h3>Reasoning tree</h3>
               <div className="view-toggle">
@@ -213,6 +192,7 @@ export function App() {
             ) : (
               <RankedDifferential c={c} selectedId={selectedId} onSelect={setSelectedId} />
             )}
+            <Timeline c={c} />
           </main>
           <aside className="pane right">
             <DetailPanel
@@ -239,7 +219,7 @@ export function App() {
           onOpenDocs={() => go("docs")}
         />
       )}
-    </div>
+    </AppShell>
   );
 }
 
