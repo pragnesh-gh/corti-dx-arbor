@@ -51,12 +51,12 @@ export function Tutorial({ onExitToLive, onExitToHome }: Props) {
 
   return (
     <div className="workspace">
-      <aside className="pane left" id="pane-evidence">
+      <aside className="pane left">
         <TutorialRail step={step} onStep={go} onExitToLive={onExitToLive} />
         <div className="na-divider" />
         <EvidencePanel c={c} />
       </aside>
-      <main className="pane center" id="pane-diagnostics" style={{ display: "flex", flexDirection: "column" }}>
+      <main className="pane center">
         <div className="center-head">
           <h3>Reasoning tree</h3>
           <div className="view-toggle">
@@ -81,7 +81,7 @@ export function Tutorial({ onExitToLive, onExitToHome }: Props) {
         )}
         <Timeline c={c} />
       </main>
-      <aside className="pane right" id="pane-treatment">
+      <aside className="pane right">
         <DetailPanel
           c={c}
           selectedId={selectedId}

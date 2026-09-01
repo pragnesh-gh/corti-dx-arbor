@@ -133,12 +133,14 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy, interacti
             <span className={`status-chip ${h.status}`}>{h.status}</span>
           </div>
           {h.description && (
-            <p className={`hypo-desc ${descOpen ? "open" : "clamp"}`}>
-              {h.description}
+            <>
+              {/* The toggle sits outside the clamped paragraph — inside it, the
+                  line-clamp hid the very control needed to un-clamp. */}
+              <p className={`hypo-desc ${descOpen ? "open" : "clamp"}`}>{h.description}</p>
               <button className="desc-toggle" onClick={() => setDescOpen((v) => !v)}>
                 {descOpen ? "show less" : "show more"}
               </button>
-            </p>
+            </>
           )}
           <div className="prob-line">
             probability <b>{(h.probability * 100).toFixed(0)}%</b>
@@ -201,7 +203,7 @@ export function DetailPanel({ c, selectedId, onUpdated, busy, setBusy, interacti
         </div>
       ) : (
         !c.workingDiagnosis && (
-          <p className="muted small">
+          <p className="muted small detail-empty">
             Select a hypothesis node in the tree to inspect its evidence, codes, and base rate.
           </p>
         )

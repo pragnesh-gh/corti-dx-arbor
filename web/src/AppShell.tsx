@@ -1,11 +1,12 @@
 /**
- * AppShell — the Clinical Precision chrome: a top app bar (brand, nav tabs,
- * search, icon buttons, optional patient header) and an optional left side-nav
- * (patient identity, "New case", section anchors). The shell wraps every view;
- * the side-nav only shows in workspace/tutorial where a case is active.
+ * AppShell — the Clinical Precision chrome: a single top app bar (brand, nav
+ * tabs, search, and — when a case is open — the patient header plus "New
+ * case"). The shell wraps every view.
  *
- * Mirrors ~/Downloads/stitch_clinical_diagnostic_graph/code.html (TopAppBar +
- * SideNavBar), adapted to Arbor's views. No behavior change — purely chrome.
+ * There is deliberately no left side-nav. The workspace is three columns
+ * (evidence · reasoning tree · detail); a fourth navigation column only
+ * duplicated identity already in the app bar and offered scroll anchors to
+ * panes that are all on screen at once.
  */
 
 import type { ReactNode } from "react";
@@ -19,21 +20,10 @@ interface Props {
   onGo: (v: View) => void;
   onNewCase: () => void;
   children: ReactNode;
-  /** Section anchor in the workspace to jump the side-nav to (optional). */
-  section?: string;
-  onSection?: (s: string) => void;
 }
 
-function initials(c: Case | null): string {
-  if (!c) return "🌳";
-  // Use the case title's first letters, or a tree if blank.
-  const t = c.title.trim();
-  if (!t) return "🌳";
-  return t.slice(0, 2).toUpperCase();
-}
-
-export function AppShell({ view, c, onGo, onNewCase, children, section, onSection }: Props) {
-  const showSideNav = (view === "workspace" || view === "tutorial") && !!c;
+export function AppShell({ view, c, onGo, onNewCase, children }: Props) {
+  const inCase = (view === "workspace" || view === "tutorial") && !!c;
   return (
     <div className="app">
       <header className="appbar">
@@ -53,13 +43,19 @@ export function AppShell({ view, c, onGo, onNewCase, children, section, onSectio
           </nav>
         </div>
         <div className="appbar-actions">
-          {c && (view === "workspace" || view === "tutorial") ? (
+          {inCase ? (
             <div className="patient-header">
-              <span className="ph-name">{c.title}</span>
+              <span className="ph-name">{c!.title}</span>
               <span className="ph-meta data-mono">
-                {c.presentation.demographics.ageYears != null && `age ${c.presentation.demographics.ageYears}`}
-                {c.presentation.demographics.sex && ` · ${c.presentation.demographics.sex}`}
+                {[
+                  c!.presentation.demographics.ageYears != null && `age ${c!.presentation.demographics.ageYears}`,
+                  c!.presentation.demographics.sex,
+                  c!.presentation.demographics.location,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
+              <button className="ghost" onClick={onNewCase}>+ New case</button>
             </div>
           ) : (
             <div className="appbar-search">
@@ -80,46 +76,6 @@ export function AppShell({ view, c, onGo, onNewCase, children, section, onSectio
       </header>
 
       <div className="shell-body">
-        {showSideNav && (
-          <aside className="sidenav">
-            <div className="sidenav-identity">
-              <div className="sidenav-avatar">{initials(c)}</div>
-              <div className="sidenav-name">{c!.title.replace(/^Tutorial — /, "").slice(0, 24) || "Case"}</div>
-              <div className="sidenav-id data-mono">
-                {c!.presentation.demographics.location || "—"}
-              </div>
-              <button onClick={onNewCase} style={{ marginTop: 16, width: "100%" }}>
-                + New case
-              </button>
-            </div>
-            <nav>
-              <a
-                className={`sidenav-item ${!section || section === "diagnostics" ? "active" : ""}`}
-                onClick={() => onSection?.("diagnostics")}
-              >
-                <span className="msym">account_tree</span> Diagnostics
-              </a>
-              <a
-                className={`sidenav-item ${section === "evidence" ? "active" : ""}`}
-                onClick={() => onSection?.("evidence")}
-              >
-                <span className="msym">science</span> Evidence
-              </a>
-              <a
-                className={`sidenav-item ${section === "treatment" ? "active" : ""}`}
-                onClick={() => onSection?.("treatment")}
-              >
-                <span className="msym">medication</span> Treatment
-              </a>
-              <a
-                className={`sidenav-item ${section === "help" ? "active" : ""}`}
-                onClick={() => onGo("docs")}
-              >
-                <span className="msym">help</span> Recipes
-              </a>
-            </nav>
-          </aside>
-        )}
         {children}
       </div>
     </div>

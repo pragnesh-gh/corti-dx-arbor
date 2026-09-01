@@ -1,24 +1,20 @@
 /**
- * EvidencePanel (left) — the case timeline: the presentation summary, the
- * findings so far, the proposed tests, and the live differential bars.
+ * EvidencePanel (left) — the case record: the presentation summary, the
+ * findings so far, and the proposed tests.
  *
- * The "add finding / test result" form used to live here; it has moved to
- * NextAction, co-located with the HITL gate that asks for it. This panel now
- * shows the accumulated evidence so the clinician can read the case at a
- * glance — the content the user liked, kept.
+ * The "add finding / test result" form lives in NextAction, co-located with
+ * the HITL gate that asks for it. The ranked differential is *not* repeated
+ * here: the reasoning tree in the centre carries every hypothesis and its
+ * probability, and the Tree/List toggle gives the same data as a ranked list.
  */
 
-import type { Case, Finding, Hypothesis } from "./types.js";
+import type { Case, Finding } from "./types.js";
 
 interface Props {
   c: Case;
 }
 
 export function EvidencePanel({ c }: Props) {
-  const liveHyps = Object.values(c.hypotheses)
-    .filter((h) => h.status === "live" || h.status === "branched")
-    .sort((a, b) => b.probability - a.probability);
-
   const supports = c.findings.filter((f) => f.direction === "supports").length;
   const against = c.findings.filter((f) => f.direction === "against").length;
 
@@ -97,19 +93,6 @@ export function EvidencePanel({ c }: Props) {
         </>
       )}
 
-      <div className="panel-head">
-        <h3>Live differential</h3>
-      </div>
-      <div className="diff-list">
-        {liveHyps.length === 0 && <p className="muted small">Advance a round to generate hypotheses.</p>}
-        {liveHyps.map((h: Hypothesis) => (
-          <div key={h.id} className="diff-row">
-            <div className="diff-bar" style={{ width: `${Math.max(h.probability * 100, 4)}%` }} />
-            <span className="diff-name">{h.name}</span>
-            <span className="diff-pct">{(h.probability * 100).toFixed(0)}%</span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
